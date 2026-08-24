@@ -3874,6 +3874,9 @@ var es_default = {
     optionDelta: "Suplemento",
     optionDeltaHelp: "Lo que la sustituci\xF3n suma al precio CERRADO. Puede ser negativo.",
     optionAdd: "A\xF1adir elecci\xF3n",
+    optionEdit: "Editar esta elecci\xF3n",
+    optionDelete: "Quitar esta elecci\xF3n",
+    editingChoice: "Editando \xAB{article}\xBB. Conserva su posici\xF3n en el curso.",
     sourceProduct: "Producto",
     sourceService: "Servicio",
     catalogueMissing: "{module} no est\xE1 instalado, as\xED que sus art\xEDculos no se pueden elegir aqu\xED. Inst\xE1lalo desde el marketplace.",
@@ -3888,6 +3891,7 @@ var es_default = {
     errNoName: "El men\xFA necesita un nombre.",
     errCeilingBelowFloor: "El m\xE1ximo ({max}) queda por debajo del m\xEDnimo ({min}): nadie podr\xEDa satisfacer nunca este curso.",
     errNoArticle: "Elige antes un art\xEDculo del cat\xE1logo.",
+    errDuplicateArticle: "Este curso ya ofrece ese art\xEDculo. Para que se pueda elegir dos veces, activa \xABse puede elegir la misma opci\xF3n m\xE1s de una vez\xBB.",
     errSaveMenu: "No se ha podido guardar el men\xFA.",
     errSaveCourse: "No se ha podido guardar el curso.",
     errSaveOption: "No se ha podido guardar la elecci\xF3n.",
@@ -3977,6 +3981,9 @@ var en_default = {
     optionDelta: "Supplement",
     optionDeltaHelp: "What substituting adds to the CLOSED price. It may be negative.",
     optionAdd: "Add choice",
+    optionEdit: "Edit this choice",
+    optionDelete: "Remove this choice",
+    editingChoice: "Editing \xAB{article}\xBB. It keeps its position in the course.",
     sourceProduct: "Product",
     sourceService: "Service",
     catalogueMissing: "{module} is not installed, so its articles cannot be picked here. Install it from the marketplace.",
@@ -3991,6 +3998,7 @@ var en_default = {
     errNoName: "The menu needs a name.",
     errCeilingBelowFloor: "The maximum ({max}) is below the minimum ({min}): nobody could ever satisfy this course.",
     errNoArticle: "Pick a catalogue article first.",
+    errDuplicateArticle: "This course already offers that article. To let it be picked twice, switch on \xABthe same option may be picked more than once\xBB.",
     errSaveMenu: "The menu could not be saved.",
     errSaveCourse: "The course could not be saved.",
     errSaveOption: "The choice could not be saved.",
@@ -4062,6 +4070,7 @@ var ErpCombosMenus = class extends i3 {
     this.courseReason = "";
     this.courseError = "";
     this.optionDraft = {};
+    this.editingChoice = null;
     this.optionReason = "";
     this.optionError = "";
     this.articles = [];
@@ -4096,6 +4105,9 @@ var ErpCombosMenus = class extends i3 {
     .choices { list-style:none; margin:.6rem 0 0; padding:0; display:flex; flex-direction:column; gap:.3rem; }
     .choices li { display:flex; gap:.5rem; align-items:center; font-size:.92rem; }
     .choices .delta { margin-left:auto; font-variant-numeric: tabular-nums; }
+    /* Pushed to the end of the row, and to the same place whether or not there is a supplement. */
+    .choices .row-actions { margin-left:auto; display:flex; align-items:center; gap:.1rem; }
+    .choices .delta + .row-actions { margin-left:.5rem; }
 
     .form { display:flex; flex-direction:column; gap:.7rem; }
     /* Wide enough to breathe on a tablet, single column on a phone. */
@@ -4234,6 +4246,7 @@ var ErpCombosMenus = class extends i3 {
     this.coursesError = "";
     this.courses = [];
     this.choices = {};
+    this.editingChoice = null;
     this.resetCourseForm();
     await this.loadCourses();
   }
@@ -4250,7 +4263,7 @@ var ErpCombosMenus = class extends i3 {
       );
       const map = {};
       this.courses.forEach((c5, i7) => {
-        map[c5.group_id] = perCourse[i7] ?? [];
+        map[c5.group_id] = [...perCourse[i7] ?? []].sort((a3, b3) => (a3.sort_order ?? 0) - (b3.sort_order ?? 0));
       });
       this.choices = map;
     } catch (e5) {
@@ -4264,6 +4277,7 @@ var ErpCombosMenus = class extends i3 {
     this.openCombo = null;
     this.courses = [];
     this.choices = {};
+    this.editingChoice = null;
     this.coursesError = "";
   }
   // ── Combo form ─────────────────────────────────────────────────────────────────────────────
@@ -4471,31 +4485,125 @@ var ErpCombosMenus = class extends i3 {
   patchDraft(groupId, patch) {
     this.optionDraft = { ...this.optionDraft, [groupId]: { ...this.draft(groupId), ...patch } };
   }
+  /** The choice the form of `groupId` is editing, or null when it is adding a new one. */
+  editingIn(groupId) {
+    return this.editingChoice?.group_id === groupId ? this.editingChoice : null;
+  }
+  /**
+   * Opens an existing choice in the form of its own course.
+   *
+   * This is the whole point of combos#1: withdrawing a choice and adding it back is NOT the same
+   * operation. It loses the position (the re-added row lands last, so correcting one cent
+   * reorders the printed menu) and it is not atomic — `ux_combos_choice_option` only looks at live
+   * rows, so the withdrawal has to land first, and a failure in between leaves the operator
+   * without the choice they only meant to retouch.
+   */
+  startEditChoice(choice) {
+    if (!can("combos.manage_combo")) return;
+    this.editingChoice = choice;
+    this.optionReason = "";
+    this.optionError = "";
+    this.optionDraft = {
+      ...this.optionDraft,
+      [choice.group_id]: {
+        ref: `${choice.source}:${choice.source_ref}`,
+        delta: choice.price_delta ? minorToInput(choice.price_delta) : ""
+      }
+    };
+  }
+  cancelEditChoice() {
+    const groupId = this.editingChoice?.group_id;
+    this.editingChoice = null;
+    this.optionReason = "";
+    this.optionError = "";
+    if (groupId) this.optionDraft = { ...this.optionDraft, [groupId]: { ref: "", delta: "" } };
+  }
+  /**
+   * Why the choice of this course cannot be saved yet, as an i18n key — or '' when it can.
+   *
+   * `ux_combos_choice_option (hub_id, group_id, source, source_ref) WHERE is_deleted = 0` refuses
+   * the same article twice in the same course. Same rule as the two CHECKs of the combo and the
+   * course: what the database refuses, the screen explains FIRST, because reaching Postgres with
+   * it means showing the merchant a unique-violation instead of a sentence. Editing a choice into
+   * itself is not a duplicate, so the row being edited is excluded from the comparison.
+   */
+  optionBlockedKey(groupId) {
+    const draft = this.draft(groupId);
+    if (!draft.ref) return "ui.errNoArticle";
+    const editing = this.editingIn(groupId);
+    const clash = (this.choices[groupId] ?? []).some(
+      (o7) => `${o7.source}:${o7.source_ref}` === draft.ref && o7.option_id !== editing?.option_id
+    );
+    return clash ? "ui.errDuplicateArticle" : "";
+  }
   async saveChoice(groupId) {
     if (!can("combos.manage_combo")) return;
-    const draft = this.draft(groupId);
-    if (!draft.ref) {
-      this.optionReason = t5("ui.errNoArticle");
+    const blocked = this.optionBlockedKey(groupId);
+    if (blocked) {
+      this.optionReason = t5(blocked);
       return;
     }
+    const draft = this.draft(groupId);
     const [source, ...rest] = draft.ref.split(":");
+    const editing = this.editingIn(groupId);
     this.saving = true;
     this.optionError = "";
     this.optionReason = "";
     try {
-      await erplora().command("combos.options.create", {
-        group_id: groupId,
-        // The reference stays OPAQUE: `source` + `source_ref`, never the article name. This module
-        // does not learn what those rows are, which is what keeps `depends_on` empty.
-        source,
-        source_ref: rest.join(":"),
-        price_delta: amountToMinor(draft.delta),
-        sort_order: (this.choices[groupId] ?? []).length
-      });
+      const article = { source, source_ref: rest.join(":"), price_delta: amountToMinor(draft.delta) };
+      if (editing) {
+        await erplora().command("combos.options.update", {
+          option_id: editing.option_id,
+          ...article,
+          // The position it ALREADY holds. `option_update.sql` runs COALESCE(:sort_order, 0), so
+          // omitting the field is not "leave it as it is": it sends the choice to the top of the
+          // course on every single edit.
+          sort_order: editing.sort_order ?? 0
+        });
+        this.editingChoice = null;
+      } else {
+        await erplora().command("combos.options.create", {
+          group_id: groupId,
+          ...article,
+          // A new choice goes LAST, the only placement that cannot reshuffle what is agreed.
+          sort_order: (this.choices[groupId] ?? []).length
+        });
+      }
       this.optionDraft = { ...this.optionDraft, [groupId]: { ref: "", delta: "" } };
       await this.loadCourses();
     } catch (e5) {
       this.optionError = domainErrorText(e5, "ui.errSaveOption");
+    } finally {
+      this.saving = false;
+    }
+  }
+  /** Moves a choice one step inside its course, then persists the two positions that swapped. */
+  async moveChoice(choice, delta) {
+    if (!can("combos.manage_combo")) return;
+    const list = this.choices[choice.group_id] ?? [];
+    const from = list.findIndex((o7) => o7.option_id === choice.option_id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= list.length) return;
+    const reordered = [...list];
+    [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
+    this.choices = { ...this.choices, [choice.group_id]: reordered };
+    this.saving = true;
+    this.optionError = "";
+    try {
+      for (const index of [from, to]) {
+        const o7 = reordered[index];
+        await erplora().command("combos.options.update", {
+          option_id: o7.option_id,
+          source: o7.source,
+          source_ref: o7.source_ref,
+          price_delta: o7.price_delta,
+          sort_order: index
+        });
+      }
+      await this.loadCourses();
+    } catch (e5) {
+      this.optionError = domainErrorText(e5, "ui.errSaveOption");
+      await this.loadCourses();
     } finally {
       this.saving = false;
     }
@@ -4506,6 +4614,7 @@ var ErpCombosMenus = class extends i3 {
     this.optionError = "";
     try {
       await erplora().command("combos.options.delete", { option_id: choice.option_id });
+      if (this.editingChoice?.option_id === choice.option_id) this.cancelEditChoice();
       await this.loadCourses();
     } catch (e5) {
       this.optionError = domainErrorText(e5, "ui.errDeleteOption");
@@ -4620,19 +4729,41 @@ var ErpCombosMenus = class extends i3 {
     const rows = this.choices[course.group_id] ?? [];
     const manage = can("combos.manage_combo");
     const draft = this.draft(course.group_id);
+    const editing = this.editingIn(course.group_id);
     return b2`
       <div class="rule">${t5("ui.optionsTitle")}</div>
       ${rows.length === 0 ? b2`<p class="muted" data-test="choices-empty">${t5("ui.optionsEmpty")}</p>` : b2`<ul class="choices">
-            ${rows.map((o7) => b2`<li data-test="choice" data-option-id=${o7.option_id}>
+            ${rows.map((o7, i7) => b2`<li data-test="choice" data-option-id=${o7.option_id}
+              data-editing=${String(this.editingChoice?.option_id === o7.option_id)}>
               <span>${this.articleLabel(o7)}</span>
               ${o7.price_delta ? b2`<span class="delta">${erplora().formatMoney(o7.price_delta)}</span>` : A}
-              ${manage ? b2`<ion-button size="small" data-test="delete-choice" @click=${() => this.deleteChoice(o7)}>
-                    <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
-                  </ion-button>` : A}
+              ${manage ? b2`<span class="row-actions">
+                    <ion-button size="small" data-test="choice-up" aria-label=${t5("ui.moveUp")}
+                      data-blocked=${String(i7 === 0)} aria-disabled=${String(i7 === 0)}
+                      @click=${() => this.moveChoice(o7, -1)}>
+                      <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
+                    <ion-button size="small" data-test="choice-down" aria-label=${t5("ui.moveDown")}
+                      data-blocked=${String(i7 === rows.length - 1)} aria-disabled=${String(i7 === rows.length - 1)}
+                      @click=${() => this.moveChoice(o7, 1)}>
+                      <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
+                    <ion-button size="small" data-test="edit-choice" aria-label=${t5("ui.optionEdit")}
+                      @click=${() => this.startEditChoice(o7)}>
+                      <ion-icon name="create-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
+                    <ion-button size="small" data-test="delete-choice" aria-label=${t5("ui.optionDelete")}
+                      @click=${() => this.deleteChoice(o7)}>
+                      <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
+                  </span>` : A}
             </li>`)}
           </ul>`}
 
-      ${manage ? b2`<div class="row">
+      ${manage ? b2`${editing ? b2`<p class="help" data-test="editing-choice" data-active="true">
+                ${t5("ui.editingChoice", { article: this.articleLabel(editing) })}
+              </p>` : A}
+          <div class="row">
             <!-- Typeahead over BOTH catalogues. The server searches, so a 500-article shop is
                  reachable; a first page of 50 filtered in the browser would hide the rest. -->
             <ok-combo
@@ -4648,10 +4779,13 @@ var ErpCombosMenus = class extends i3 {
               @ionInput=${(e5) => this.patchDraft(course.group_id, { delta: String(e5.target.value ?? "") })}></ion-input>
             ${this.blockingButton({
       test: "save-option",
-      blocked: !draft.ref,
-      label: t5("ui.optionAdd"),
+      blocked: Boolean(this.optionBlockedKey(course.group_id)),
+      label: editing ? this.saving ? t5("ui.saving") : t5("ui.save") : t5("ui.optionAdd"),
       onClick: () => this.saveChoice(course.group_id)
     })}
+            ${editing ? b2`<ion-button size="small" data-test="cancel-choice" @click=${() => this.cancelEditChoice()}>
+                  ${t5("ui.cancel")}
+                </ion-button>` : A}
           </div>
           <p class="help">${t5("ui.optionDeltaHelp")}</p>` : A}
     `;
@@ -4860,6 +4994,9 @@ __decorateClass([
 __decorateClass([
   r5()
 ], ErpCombosMenus.prototype, "optionDraft", 2);
+__decorateClass([
+  r5()
+], ErpCombosMenus.prototype, "editingChoice", 2);
 __decorateClass([
   r5()
 ], ErpCombosMenus.prototype, "optionReason", 2);
