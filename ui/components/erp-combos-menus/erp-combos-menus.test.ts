@@ -1117,6 +1117,24 @@ describe('every control of the builder is a target a finger can hit', () => {
     }
   });
 
+  // 🔴 Found by the 44 px change itself, on the corrected bench at 390×844: four 44 px targets are
+  // 64 px wider per row than four 28 px ones, and with a long article name plus a supplement the
+  // Retirar button was pushed PAST the right edge of its own row (`delete.right > li.right`, with
+  // the page not scrolling sideways — so it was simply cut off). Growing a touch target until it
+  // leaves the card is not a fix, so the row is allowed to WRAP: on a narrow screen the actions
+  // drop to their own line at full size instead of being clipped or shrunk.
+  it('a long name does not push the actions out of the row: the row wraps instead', async () => {
+    const css = styleSheet(await mount());
+    const row = /\.choices li \{([^}]*)\}/.exec(css);
+    expect(row, 'the choice row has no rule of its own any more').toBeTruthy();
+    expect(/flex-wrap:\s*wrap/.test(row![1]),
+      'the row cannot wrap: a long article name pushes Retirar off the card at 390 px').toBe(true);
+    const actions = /\.choices \.row-actions \{([^}]*)\}/.exec(css);
+    expect(actions, 'the actions of a choice row have no rule of their own any more').toBeTruthy();
+    expect(/flex:\s*0 0 auto/.test(actions![1]),
+      'the actions can shrink: a 44 px target that shrinks is not a 44 px target').toBe(true);
+  });
+
   it('the height survives Ionic: it is set on the host AND on the ion-button variable', async () => {
     // `min-height` on the host alone is not enough on every Ionic control: the inner
     // `.button-native` is what is actually tapped, and it follows `--min-height`. Both are pinned

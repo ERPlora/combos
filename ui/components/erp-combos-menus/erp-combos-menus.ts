@@ -126,10 +126,20 @@ export class ErpCombosMenus extends LitElement {
     .badge { display:inline-block; border-radius:999px; padding:.1rem .55rem; font-size:.78rem; background: color-mix(in srgb, var(--ion-text-color, #1c1b18) 8%, transparent); }
 
     .choices { list-style:none; margin:.6rem 0 0; padding:0; display:flex; flex-direction:column; gap:.3rem; }
-    .choices li { display:flex; gap:.5rem; align-items:center; font-size:.92rem; }
+    /* Wraps on purpose. Four 44 px targets are 64 px wider per row than four 28 px ones, and
+       measured at 390x844 a long article name plus a supplement pushed Retirar PAST the right
+       edge of its own row -- cut off, with the page not even scrolling sideways to reveal it.
+       Growing a touch target until it leaves the card is not a fix, so on a narrow screen the
+       actions drop to their own line at full size. */
+    .choices li { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; font-size:.92rem; }
+    .choices .name { flex:1 1 8rem; min-width:0; overflow-wrap:anywhere; }
     .choices .delta { margin-left:auto; font-variant-numeric: tabular-nums; }
-    /* Pushed to the end of the row, and to the same place whether or not there is a supplement. */
-    .choices .row-actions { margin-left:auto; display:flex; align-items:center; gap:.1rem; }
+    /* Pushed to the end of the row, and to the same place whether or not there is a supplement.
+       The flex:0 0 auto is load-bearing: a 44 px target that is allowed to shrink is not a 44 px
+       target any more, it just fails more quietly.
+       (No backticks in this comment -- it lives inside the css tagged template and one would
+       CLOSE it, which is exactly how this edit broke the whole component once.) */
+    .choices .row-actions { flex:0 0 auto; margin-left:auto; display:flex; align-items:center; gap:.1rem; }
     .choices .delta + .row-actions { margin-left:.5rem; }
 
     .form { display:flex; flex-direction:column; gap:.7rem; }
@@ -905,7 +915,7 @@ export class ErpCombosMenus extends LitElement {
         : html`<ul class="choices">
             ${rows.map((o, i) => html`<li data-test="choice" data-option-id=${o.option_id}
               data-editing=${String(this.editingChoice?.option_id === o.option_id)}>
-              <span>${this.articleLabel(o)}</span>
+              <span class="name">${this.articleLabel(o)}</span>
               ${o.price_delta ? html`<span class="delta">${erplora().formatMoney(o.price_delta)}</span>` : nothing}
               ${manage
                 ? html`<span class="row-actions">
