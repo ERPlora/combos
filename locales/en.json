@@ -89,6 +89,8 @@
     "errCeilingBelowFloor": "The maximum ({max}) is below the minimum ({min}): nobody could ever satisfy this course.",
     "errNoArticle": "Pick a catalogue article first.",
     "errDuplicateArticle": "This course already offers that article. To let it be picked twice, switch on «the same option may be picked more than once».",
+    "errAmbiguousAmount": "This amount can be read in two ways: «{typed}» could be 1250 or 1.25. Type it with its decimals — for example 1250.00 or 1.25.",
+    "errNotAnAmount": "This is not an amount. Type a figure, for example 12.50.",
     "errSaveMenu": "The menu could not be saved.",
     "errSaveCourse": "The course could not be saved.",
     "errSaveOption": "The choice could not be saved.",

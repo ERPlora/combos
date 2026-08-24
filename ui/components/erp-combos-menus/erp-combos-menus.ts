@@ -71,18 +71,107 @@ const t = (key: string, params?: Record<string, unknown>): string => erplora().t
 /** Decimals of the hub currency. NOT a hardcoded 2: in JPY they are 0 and `*100` overcharges 100x. */
 const decimals = (): number => erplora().currencyDecimals ?? 2;
 
+/** What a typed amount turned out to be — or the i18n key of why it could not be read. */
+type Amount = { ok: true; minor: number } | { ok: false; key: string };
+
 /**
- * A typed amount → minor units. `majorToMinor` runs `Number()`, which yields NaN on the comma a
- * Spanish keyboard produces, and NaN lands in an INTEGER column as a silent 0. The comma is
- * normalised here so "13,50" and "-1,50" mean what the person typed.
+ * A typed amount → minor units, in a till used in Spain (combos#3).
+ *
+ * The old version was `String(typed).replace(',', '.')`: it handled the comma a Spanish keyboard
+ * produces, and NOTHING else. `1.250,50` — verbatim what the row two centimetres above prints,
+ * and since hub#1090 money groups ALWAYS, so it is the normal case — became `1.250.50`, `Number`
+ * answered NaN, and NaN landed in an INTEGER column as a silent 0. The menu saved itself FREE
+ * with no error and nothing in the console.
+ *
+ * The rule, decided from the market (12+ references and their forums, written into combos#3):
+ *
+ *  * BOTH separators, always. Odoo's oldest complaint is accepting only the active language's
+ *    (`6.35` saved as 635); Business Central shipped an entire release feature to stop doing it
+ *    in Spain; Firefox resolved its own bug by falling back to the English reading.
+ *  * Two DIFFERENT separators → the LAST one is the decimal, the other is grouping. That is what
+ *    makes a pasted `1.250,50` and a pasted `1,250.50` both mean 1250,50.
+ *  * The same separator more than once → it can only be grouping (`1.250.000`).
+ *  * Anything that is not a digit or a separator is cleaned away: currency symbol, plain spaces,
+ *    and NBSP / NNBSP / thin space. The narrow no-break space is the one that broke Odoo in
+ *    French (odoo#106534), and `Intl` emits it, so it arrives on real pastes.
+ *
+ * 🔴 And ONE case is refused instead of guessed: a lone separator followed by exactly three
+ * digits, in a currency that does not have three decimals. `1.250` is 1250 to the Spaniard who
+ * typed it and 1,25 to a parser told "a lone separator is always decimal", and the two readings
+ * are 1000x apart. There is no safe guess, so the screen says so in words — the same contract as
+ * the CHECK constraints: what cannot be accepted is EXPLAINED, never silently reinterpreted.
  */
-function amountToMinor(typed: unknown): number {
-  const text = String(typed ?? '').trim().replace(',', '.');
-  if (!text) return 0;
-  return majorToMinor(text, decimals());
+function parseAmount(typed: unknown, d: number): Amount {
+  const raw = String(typed ?? '').trim();
+  if (!raw) return { ok: true, minor: 0 };
+  // The sign is read BEFORE cleaning, because cleaning is what removes it.
+  const negative = raw.startsWith('-');
+  const text = raw.replace(/[^\d.,]/g, '');
+  if (!text) return { ok: false, key: 'ui.errNotAnAmount' };
+
+  const dots = (text.match(/\./g) ?? []).length;
+  const commas = (text.match(/,/g) ?? []).length;
+  let normalised: string;
+
+  if (dots && commas) {
+    const dec = text.lastIndexOf('.') > text.lastIndexOf(',') ? '.' : ',';
+    const grp = dec === '.' ? ',' : '.';
+    normalised = text.split(grp).join('').replace(dec, '.');
+  } else if (dots + commas === 0) {
+    normalised = text;
+  } else {
+    const sep = dots ? '.' : ',';
+    const tail = text.slice(text.lastIndexOf(sep) + 1);
+    if (dots + commas > 1) normalised = text.split(sep).join('');
+    else if (tail.length === 3 && d !== 3) return { ok: false, key: 'ui.errAmbiguousAmount' };
+    else normalised = text.replace(sep, '.');
+  }
+
+  const n = Number(normalised);
+  if (!Number.isFinite(n)) return { ok: false, key: 'ui.errNotAnAmount' };
+  return { ok: true, minor: majorToMinor(negative ? -n : n, d) };
 }
 
-const minorToInput = (minor: number): string => String(minorToMajor(minor, decimals()));
+/** The amount, or 0 — for the callers that have already checked it can be read. */
+function amountToMinor(typed: unknown): number {
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? parsed.minor : 0;
+}
+
+/** Why this typed amount cannot be used, as an i18n key — or '' when it can. */
+function amountBlockedKey(typed: unknown): string {
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? '' : parsed.key;
+}
+
+/**
+ * MINOR units → what a human types into the field, in the HUB's locale and the CURRENCY's
+ * decimals: 1350 → «13,50» in es, «13.50» in en. Two rules, both load-bearing:
+ *
+ *  * the decimals come from the currency, so the field never shows a different scale than the
+ *    money it edits (in JPY there are none, and 1999 is 1999 yen);
+ *  * NO GROUPING. `useGrouping:false` is not a nicety: `1.250,50` inside an editable field is the
+ *    single cause of the x10 Business Central had to fix for Spain and of the field Odoo blanked
+ *    (odoo#19357), and a field whose own output does not survive being read back is broken by
+ *    design. Grouping belongs on the READ-ONLY surfaces, which is where hub#1090 put it.
+ */
+const minorToInput = (minor: number): string => {
+  const d = decimals();
+  return new Intl.NumberFormat(erplora().locale || 'en', {
+    minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false,
+  }).format(minorToMajor(minor, d));
+};
+
+/**
+ * What the field should show once the person leaves it. Unreadable input is left EXACTLY as typed:
+ * rewriting it would either throw away what they wrote or pick one of the two readings of an
+ * ambiguous amount, which is the guess this whole section exists to avoid.
+ */
+function normaliseOnBlur(typed: string): string {
+  if (!typed.trim()) return typed;
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? minorToInput(parsed.minor) : typed;
+}
 
 /** The two catalogues a combo component can come from, each with the module that owns it. */
 const CATALOGUES = [
@@ -448,6 +537,10 @@ export class ErpCombosMenus extends LitElement {
   private get comboBlockedKey(): string {
     if (!this.fName.trim()) return 'ui.errNoName';
     if (this.fSupplyKind === 'service' && !this.fTaxCategory.trim()) return 'ui.errNoTaxCategory';
+    // An amount that cannot be read is REFUSED, never coerced to 0 (combos#3): a menu that saves
+    // itself free because a paste was misread is the most expensive kind of silence there is.
+    const price = amountBlockedKey(this.fPrice);
+    if (price) return price;
     return '';
   }
 
@@ -456,7 +549,9 @@ export class ErpCombosMenus extends LitElement {
     const blocked = this.comboBlockedKey;
     if (blocked) {
       // The tap ANSWERS. This is the whole reason the button is not natively disabled.
-      this.comboReason = t(blocked);
+      // `typed` is what they actually wrote: an unreadable amount is quoted back, because
+      // "this is not an amount" without saying WHICH one is a dead end on a busy counter.
+      this.comboReason = t(blocked, { typed: this.fPrice.trim() });
       return;
     }
     this.saving = true;
@@ -687,6 +782,8 @@ export class ErpCombosMenus extends LitElement {
   private optionBlockedKey(groupId: string): string {
     const draft = this.draft(groupId);
     if (!draft.ref) return 'ui.errNoArticle';
+    const delta = amountBlockedKey(draft.delta);
+    if (delta) return delta;
     const editing = this.editingIn(groupId);
     const clash = (this.choices[groupId] ?? []).some(
       (o) => `${o.source}:${o.source_ref}` === draft.ref && o.option_id !== editing?.option_id,
@@ -700,7 +797,7 @@ export class ErpCombosMenus extends LitElement {
     if (blocked) {
       // The tap ANSWERS, in the course it was tapped in.
       this.optionScope = groupId;
-      this.optionReason = t(blocked);
+      this.optionReason = t(blocked, { typed: this.draft(groupId).delta.trim() });
       return;
     }
     const draft = this.draft(groupId);
@@ -851,7 +948,8 @@ export class ErpCombosMenus extends LitElement {
 
       <ion-input mode="md" fill="outline" data-test="combo-price" type="text" inputmode="decimal"
         label=${t('ui.fieldPrice')} label-placement="floating" .value=${this.fPrice}
-        @ionInput=${(e: CustomEvent) => (this.fPrice = String((e.target as HTMLInputElement).value ?? ''))}></ion-input>
+        @ionInput=${(e: CustomEvent) => (this.fPrice = String((e.target as HTMLInputElement).value ?? ''))}
+        @ionBlur=${() => (this.fPrice = normaliseOnBlur(this.fPrice))}></ion-input>
       <p class="help">${t('ui.fieldPriceHelp')}</p>
 
       <!-- supply_kind is asked by what it MEANS: whoever fills it is a restaurateur, not an adviser. -->
@@ -961,7 +1059,8 @@ export class ErpCombosMenus extends LitElement {
             ></ok-combo>
             <ion-input mode="md" fill="outline" data-test="option-delta" type="text" inputmode="decimal"
               label=${t('ui.optionDelta')} label-placement="floating" .value=${draft.delta}
-              @ionInput=${(e: CustomEvent) => this.patchDraft(course.group_id, { delta: String((e.target as HTMLInputElement).value ?? '') })}></ion-input>
+              @ionInput=${(e: CustomEvent) => this.patchDraft(course.group_id, { delta: String((e.target as HTMLInputElement).value ?? '') })}
+              @ionBlur=${() => this.patchDraft(course.group_id, { delta: normaliseOnBlur(this.draft(course.group_id).delta) })}></ion-input>
             ${this.blockingButton({
               test: 'save-option',
               blocked: Boolean(this.optionBlockedKey(course.group_id)),

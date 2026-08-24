@@ -811,8 +811,12 @@ describe('a choice is edited in place, keeping the position it holds in the cour
 
     const picker = at(el, 'option-picker') as unknown as { value: string };
     expect(picker.value, 'the picker does not preselect the article being edited').toBe('product:p2');
+    // Was `'3'` until combos#3. That assertion pinned the defect: `String(minorToMajor(300, 2))`
+    // gives `3` — no decimals, and a dot as soon as there is a fraction. The field now speaks the
+    // hub's locale with the currency's decimals, so 300 minor reads «3,00» in es. Changed because
+    // the assertion was wrong, not because the code moved under it.
     expect(String((at(el, 'option-delta') as { value?: unknown }).value ?? ''),
-      'the supplement box does not carry the current supplement').toBe('3');
+      'the supplement box does not carry the current supplement').toBe('3,00');
     expect(choiceRow(el, 'o2').getAttribute('data-editing'),
       'nothing marks WHICH choice is being edited').toBe('true');
     expect(translated, 'it never says which choice is open for editing').toContain('ui.editingChoice');
@@ -1142,5 +1146,206 @@ describe('every control of the builder is a target a finger can hit', () => {
     const css = styleSheet(await mount());
     expect(/--min-height:\s*44px/.test(css),
       'only the host is pinned: the inner button Ionic actually paints can stay smaller').toBe(true);
+  });
+});
+
+// ── 10 · Money is written and read in the language of the hub (combos#3) ──────────────────────
+//
+// The screen printed `1,50 €` in the row and put **`1.5`** in the field that edits it, and printed
+// `1.250,50 €` and put `1250.5`. Measured on origin/main@9a84fed in Chromium on the built bundle.
+// Two separate defects, one cause: `minorToInput` was `String(minorToMajor(...))`, which speaks
+// JavaScript, not Spanish.
+//
+// 🔴 AND THE INPUT WAS WORSE THAN THE OUTPUT. `amountToMinor` normalised the comma with a single
+// `.replace(',', '.')`, which knows nothing about a GROUPING separator. Typed into the price field
+// on the same bench, saving a menu produced:
+//
+//     1,50        -> 150      ok
+//     1250,50     -> 125050   ok
+//     1.250,50    -> 0        <- SILENTLY FREE
+//     1.250,50 €  -> 0        <- SILENTLY FREE
+//
+// `1.250,50` is literally the string the screen prints two centimetres above the field, and since
+// hub#1090 money groups ALWAYS, so it is the normal case and not an exotic one. Copying it back in
+// saved the menu at zero with no error, no red sentence and nothing in the console — the exact
+// "NaN lands in an INTEGER column as a silent 0" the code's own comment claimed to have fixed.
+//
+// THE DECISION (market, 12+ references + forums, written into combos#3):
+//
+//  * OUT, into the field: the hub's locale, the CURRENCY's decimals, and **no grouping** —
+//    `1,50`, `1250,50`. Grouping stays on the read-only surfaces (hub#1090). Inside an editable
+//    field it is the single cause of the ×10 of Business Central in Spain, of the field Odoo
+//    blanked (odoo#19357), and of the cursor jumping while typing.
+//  * IN: BOTH separators, always. Odoo's top complaint is accepting only the active language's
+//    (`6.35` -> 635); Business Central shipped a whole release feature to stop doing it; Firefox
+//    resolved its own bug by falling back to the English reading.
+//  * PASTE: cleaned, not rejected — currency symbol, plain spaces, NBSP and NNBSP (the last one is
+//    what broke Odoo in French, odoo#106534), and grouping separators.
+//  * NEVER a silent wrong number. Where the two readings of a string differ by 1000×, the screen
+//    REFUSES and says so, exactly like the CHECK constraints in section 4. It does not pick one.
+//
+// The one case that is genuinely undecidable is a lone separator followed by exactly three digits:
+// a Spaniard typing `1.250` means 1250, a parser told "a lone separator is always decimal" reads
+// 1,25 — and either guess is wrong by a factor of 1000 in a till with a fiscal chain. So it is not
+// guessed.
+
+/** Types into a money field and SAVES the combo, returning the `price` that reached the command. */
+async function savePriceTyped(el: Mounted, typed: string): Promise<unknown> {
+  table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+  await settle(el);
+  type(el, 'combo-price', typed);
+  await settle(el);
+  commands = [];
+  at(el, 'save-combo')!.click();
+  await settle(el);
+  const cmd = commands.find((c) => c.name === 'combos.combos.update');
+  return cmd ? cmd.payload.price : undefined;
+}
+
+describe('money is written into the field in the language of the hub, and read back in both', () => {
+  it('opening a menu to edit puts the price in the hub locale, with the currency decimals', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    // 1350 minor, EUR, locale `es` -> «13,50». Not `13.5`: neither the separator nor the decimals.
+    expect(at(el, 'combo-price')!.value,
+      'the price field speaks JavaScript, not the language of the hub').toBe('13,50');
+  });
+
+  it('the same for the supplement of a choice, which is the other half of the same bug', async () => {
+    options = [{ option_id: 'o1', group_id: 'g1', source: 'product', source_ref: 'p1', price_delta: 150, sort_order: 0 }];
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    expect(at(el, 'option-delta')!.value,
+      'the supplement field speaks JavaScript, not the language of the hub').toBe('1,50');
+  });
+
+  it('a four-digit amount is NOT grouped inside the field, even though the row groups it', async () => {
+    // hub#1090 groups on the read-only surfaces. Inside an editable field grouping is the cause of
+    // the bug, not a nicety — and a field that cannot re-read its own output is broken by design.
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: { ...SET_MENU, price: 125050 } } }));
+    await settle(el);
+    expect(at(el, 'combo-price')!.value,
+      'the field groups: its own output does not survive being read back').toBe('1250,50');
+  });
+
+  it('what the field paints, the field can read back — the round trip is closed', async () => {
+    const el = await mount();
+    // The exact string the field itself produced for 125050.
+    expect(await savePriceTyped(el, '1250,50'), 'the field cannot re-read its own output').toBe(125050);
+    expect(await savePriceTyped(el, '13,50'), 'the field cannot re-read its own output').toBe(1350);
+  });
+
+  it('BOTH separators are accepted: a comma keyboard and a numpad both work', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '1,50'), 'the comma a Spanish keyboard types is refused').toBe(150);
+    expect(await savePriceTyped(el, '1.50'), 'the dot a numpad types is refused').toBe(150);
+  });
+
+  it('🔴 a grouped amount pasted from the row above no longer saves the menu as FREE', async () => {
+    const el = await mount();
+    // `1.250,50 €` is what the row two centimetres above prints, verbatim.
+    expect(await savePriceTyped(el, '1.250,50'), 'a pasted grouped amount still saves 0').toBe(125050);
+    expect(await savePriceTyped(el, '1.250,50 €'), 'the currency symbol still saves 0').toBe(125050);
+    expect(await savePriceTyped(el, '1 250,50'), 'a space-grouped amount still saves 0').toBe(125050);
+    // NNBSP U+202F is what French locales emit and what broke Odoo (odoo#106534).
+    expect(await savePriceTyped(el, '1 250,50'), 'a narrow no-break space still saves 0').toBe(125050);
+    expect(await savePriceTyped(el, '1 250,50'), 'a no-break space still saves 0').toBe(125050);
+  });
+
+  it('the English reading is accepted too: a pasted `1,250.50` is not 1 euro', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '1,250.50'), 'the English grouping is misread').toBe(125050);
+  });
+
+  it('a negative supplement still works: the sign is not eaten by the cleaning', async () => {
+    options = [{ option_id: 'o1', group_id: 'g1', source: 'product', source_ref: 'p1', price_delta: 0, sort_order: 0 }];
+    persistChoices();
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    type(el, 'option-delta', '-1,50');
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+    expect(commands.find((c) => c.name === 'combos.options.update')?.payload.price_delta,
+      'the minus sign was cleaned away with the currency symbol').toBe(-150);
+  });
+
+  it('an EMPTY field is still "no supplement", not a refusal', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, ''), 'an empty amount became something other than zero').toBe(0);
+  });
+
+  it('🔴 the undecidable amount is REFUSED in words, not guessed at 1000x either way', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combo-price', '1.250');
+    await settle(el);
+    commands = [];
+    at(el, 'save-combo')!.click();
+    await settle(el);
+    expect(commands.find((c) => c.name === 'combos.combos.update'),
+      'a `1.250` that could mean 1250 or 1,25 was guessed and written anyway').toBeUndefined();
+    expect(at(el, 'combo-blocked-reason'), 'it was refused in silence, which is the worse half').toBeTruthy();
+    expect(translated, 'the refusal has no sentence of its own').toContain('ui.errAmbiguousAmount');
+  });
+
+  it('three digits after the separator are NOT ambiguous when the currency has three', async () => {
+    // KWD: 1,250 dinars is an ordinary amount, not a riddle. The rule reads the CURRENCY, not a 2.
+    (globalThis as Record<string, any>).erplora.currencyDecimals = 3;
+    const el = await mount();
+    expect(await savePriceTyped(el, '1,250'), 'a legitimate 3-decimal amount is refused as ambiguous').toBe(1250);
+  });
+
+  it('a repeated separator is grouping, and that is not ambiguous', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '1.250.000'), 'a clearly grouped amount is not read as grouped').toBe(125000000);
+  });
+
+  it('leaving the field normalises what was typed, so the user SEES what will be saved', async () => {
+    // The market is unanimous that a currency field formats on blur, not on every keystroke:
+    // reformatting while typing moves the cursor. Blur is also the confirmation — type `1.5`, see
+    // `1,50`, and correct it BEFORE saving. That is what WooCommerce and Dolibarr never gave.
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combo-price', '1.5');
+    await settle(el);
+    at(el, 'combo-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    await settle(el);
+    expect(at(el, 'combo-price')!.value,
+      'the field does not settle on blur: the user only finds out what was saved afterwards').toBe('1,50');
+  });
+
+  it('blur does NOT rewrite an amount it cannot read: the typing survives to be corrected', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combo-price', '1.250');
+    await settle(el);
+    at(el, 'combo-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    await settle(el);
+    expect(at(el, 'combo-price')!.value,
+      'blur silently picked one of the two readings, which is the guess this rule exists to prevent')
+      .toBe('1.250');
+  });
+
+  it('the money fields are text + inputmode=decimal, never type=number', async () => {
+    // GOV.UK, Material and NN/g all say not to use type=number, and two OPEN Ionic bugs hit us
+    // directly: #29012 (iOS keyboard offers `,`, the value arrives `null`) and #28454 (Safari
+    // returns an empty string for a valid decimal). A field that empties itself in silence is the
+    // same class of defect as the one this section fixes.
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    const price = at(el, 'combo-price')!;
+    expect(price.getAttribute('type'), 'type=number empties itself in silence on an invalid value').toBe('text');
+    expect(price.getAttribute('inputmode'), 'without inputmode=decimal a tablet offers the wrong keyboard').toBe('decimal');
   });
 });
