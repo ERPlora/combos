@@ -610,6 +610,24 @@ try:
         "c-menu" not in [r[0] for r in after],
         "a deleted combo must leave the catalogue",
     )
+    # 🔴 Asserted on the TABLE, not through `combos.options.all`. That query JOINs the group with
+    # `g.is_deleted = 0`, so an option that survived its combo is INVISIBLE through it — the
+    # assertion below used to go through the query and stayed green with the option-deleting
+    # statement replaced by a no-op (measured: mutation M5 survived until this was added). A row
+    # that outlives its parent is exactly what a soft delete gets wrong, so it is checked where it
+    # can actually be seen.
+    orphans = psql(
+        ["-tAc",
+         "SELECT count(*) FROM combos_choice_option o "
+         "JOIN combos_choice_group g ON g.id = o.group_id "
+         f"WHERE o.hub_id = '{HUB}' AND g.combo_id = 'c-menu' AND o.is_deleted = 0"],
+        db=DB).strip()
+    check(
+        orphans == "0",
+        f"deleting a combo must soft-delete its options too: {orphans} live option(s) still hang "
+        f"off the deleted menu. They are invisible through combos.options.all (its JOIN hides "
+        f"them) and would come back the moment anything read the table directly",
+    )
     left = rows("queries/options_all.sql", {"hub_id": HUB}, DB)
     check(
         not [r for r in left if r[2] == "c-menu"],
