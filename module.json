@@ -3,7 +3,7 @@
   "name": "Combos",
   "description": "Menus, packs and combos sold at a closed price, with ordered choice groups. Sole owner of the compound sellable article (ADR-0381).",
   "icon": "ion:restaurant-outline",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "agent": {
     "description": "Menus, packs and combos: a compound article sold at a CLOSED price whose courses the customer picks from (menu del dia, 'sandwich + drink', 'cut + colour'). Sole owner of the compound sellable article and of its choice groups, for everything that is sold. A combo is an article of the catalogue, never a discount.",
     "keywords": [
