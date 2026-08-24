@@ -375,7 +375,6 @@ export class ErpCombosMenus extends LitElement {
     this.openCombo = null;
     this.courses = [];
     this.choices = {};
-    this.resetChoiceForm();
     this.coursesError = '';
   }
 
@@ -626,10 +625,13 @@ export class ErpCombosMenus extends LitElement {
   }
 
   /**
-   * Everything the choice form holds, back to zero. Called when a menu is opened and when one is
-   * left: a refusal, and a half-typed draft, belong to the attempt that caused them, and leaving
-   * the menu ends that attempt. Kept as ONE place because the state is four fields, and clearing
-   * three of them is how a red sentence comes back to a menu where nothing was refused.
+   * Everything the choice form holds, back to zero — on OPENING a menu, next to the
+   * `resetCourseForm` that was already there, and only there: the list is the only door into a
+   * builder, so every entry passes through here.
+   *
+   * A refusal, and a half-typed draft, belong to the attempt that caused them; leaving the menu
+   * ends that attempt. The four fields are cleared together on purpose — clearing three of them
+   * is exactly how a red sentence comes back to a menu where nothing was refused.
    */
   private resetChoiceForm(): void {
     this.editingChoice = null;
