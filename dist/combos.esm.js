@@ -4247,7 +4247,7 @@ var ErpCombosMenus = class extends i3 {
     this.coursesError = "";
     this.courses = [];
     this.choices = {};
-    this.editingChoice = null;
+    this.resetChoiceForm();
     this.resetCourseForm();
     await this.loadCourses();
   }
@@ -4278,7 +4278,7 @@ var ErpCombosMenus = class extends i3 {
     this.openCombo = null;
     this.courses = [];
     this.choices = {};
-    this.editingChoice = null;
+    this.resetChoiceForm();
     this.coursesError = "";
   }
   // ── Combo form ─────────────────────────────────────────────────────────────────────────────
@@ -4520,6 +4520,19 @@ var ErpCombosMenus = class extends i3 {
     this.optionReason = "";
     this.optionError = "";
     if (groupId) this.optionDraft = { ...this.optionDraft, [groupId]: { ref: "", delta: "" } };
+  }
+  /**
+   * Everything the choice form holds, back to zero. Called when a menu is opened and when one is
+   * left: a refusal, and a half-typed draft, belong to the attempt that caused them, and leaving
+   * the menu ends that attempt. Kept as ONE place because the state is four fields, and clearing
+   * three of them is how a red sentence comes back to a menu where nothing was refused.
+   */
+  resetChoiceForm() {
+    this.editingChoice = null;
+    this.optionDraft = {};
+    this.optionScope = "";
+    this.optionReason = "";
+    this.optionError = "";
   }
   /**
    * Why the choice of this course cannot be saved yet, as an i18n key — or '' when it can.

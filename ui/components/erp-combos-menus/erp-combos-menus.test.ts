@@ -937,6 +937,26 @@ describe('a choice is edited in place, keeping the position it holds in the cour
       'an untouched course is painted as failing too').toBeNull();
   });
 
+  it('a refusal does not survive leaving the menu and coming back', async () => {
+    const el = await mount();
+    await openMenu(el);
+    (at(el, 'option-picker') as HTMLElement)
+      .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p1' } }));
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+    expect(at(el, 'option-blocked-reason'), 'the refusal was not shown in the first place').toBeTruthy();
+
+    at(el, 'back-to-menus')!.click();
+    await settle(el);
+    await openMenu(el);
+    expect(at(el, 'option-blocked-reason'),
+      'the old refusal is painted again on a menu where nothing was refused').toBeNull();
+    // The half-typed draft belongs to the same abandoned attempt.
+    expect((at(el, 'option-picker') as unknown as { value: string }).value,
+      'the article picked in the abandoned attempt is still selected').toBe('');
+  });
+
   it('editing a choice into ITSELF is not a duplicate', async () => {
     const el = await mount();
     await openMenu(el);

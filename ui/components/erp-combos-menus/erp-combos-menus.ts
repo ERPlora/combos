@@ -338,7 +338,7 @@ export class ErpCombosMenus extends LitElement {
     this.coursesError = '';
     this.courses = [];
     this.choices = {};
-    this.editingChoice = null;
+    this.resetChoiceForm();
     this.resetCourseForm();
     await this.loadCourses();
   }
@@ -375,7 +375,7 @@ export class ErpCombosMenus extends LitElement {
     this.openCombo = null;
     this.courses = [];
     this.choices = {};
-    this.editingChoice = null;
+    this.resetChoiceForm();
     this.coursesError = '';
   }
 
@@ -623,6 +623,18 @@ export class ErpCombosMenus extends LitElement {
     this.editingChoice = null;
     this.optionScope = ''; this.optionReason = ''; this.optionError = '';
     if (groupId) this.optionDraft = { ...this.optionDraft, [groupId]: { ref: '', delta: '' } };
+  }
+
+  /**
+   * Everything the choice form holds, back to zero. Called when a menu is opened and when one is
+   * left: a refusal, and a half-typed draft, belong to the attempt that caused them, and leaving
+   * the menu ends that attempt. Kept as ONE place because the state is four fields, and clearing
+   * three of them is how a red sentence comes back to a menu where nothing was refused.
+   */
+  private resetChoiceForm(): void {
+    this.editingChoice = null;
+    this.optionDraft = {};
+    this.optionScope = ''; this.optionReason = ''; this.optionError = '';
   }
 
   /**
