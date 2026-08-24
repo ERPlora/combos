@@ -912,6 +912,11 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     first.click();
     await settle(el);
     expect(commands.filter((c) => c.name.startsWith('combos.options.')), 'a blocked arrow wrote anyway').toEqual([]);
+    // Not writing is only half of it: a blocked arrow must be a NO-OP, not a swallowed crash that
+    // paints a failure the operator did not cause.
+    expect(choiceOrder(el), 'a blocked arrow moved something').toEqual(['o1', 'o2', 'o3']);
+    expect(el.shadowRoot.querySelector('ok-inline-feedback[tone="danger"]'),
+      'a blocked arrow reported a failure at the operator').toBeNull();
   });
 
   it('without the manage permission there is no edit and no arrow, only what can be read', async () => {
