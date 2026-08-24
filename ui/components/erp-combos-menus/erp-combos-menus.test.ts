@@ -899,6 +899,44 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     expect(commands.filter((c) => c.name === 'combos.options.create'), 'a duplicate was sent to the database').toEqual([]);
   });
 
+  // 🔴 MEASURED IN CHROMIUM, at 390x844. The reason existed in the DOM and every happy-dom
+  // assertion was green — but it was painted AFTER the last course, so on a phone the operator
+  // taps «Guardar» in the first course and the sentence explaining the refusal is two screens
+  // below, out of sight. A reason nobody sees is the `title` attribute all over again.
+  it('the reason is painted INSIDE the course whose form was refused, not at the foot of the menu', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    (at(el, 'option-picker') as HTMLElement)
+      .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p2' } }));
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+
+    const course = (id: string) => el.shadowRoot.querySelector(`[data-test="course"][data-group-id="${id}"]`)!;
+    expect(course('g1').querySelector('[data-test="option-blocked-reason"]'),
+      'the reason is not inside the course that refused: on a phone it is off-screen').toBeTruthy();
+    expect(course('g2').querySelector('[data-test="option-blocked-reason"]'),
+      'the reason is repeated in a course that refused nothing').toBeNull();
+  });
+
+  it('a failure is reported in the course it happened in, not in every course at once', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    (globalThis as Record<string, any>).erplora.command = async () => { throw new Error(''); };
+    at(el, 'save-option')!.click();
+    await settle(el);
+
+    const course = (id: string) => el.shadowRoot.querySelector(`[data-test="course"][data-group-id="${id}"]`)!;
+    expect(course('g1').querySelector('ok-inline-feedback[tone="danger"]'),
+      'the failure is not shown in the course it happened in').toBeTruthy();
+    expect(course('g2').querySelector('ok-inline-feedback[tone="danger"]'),
+      'an untouched course is painted as failing too').toBeNull();
+  });
+
   it('editing a choice into ITSELF is not a duplicate', async () => {
     const el = await mount();
     await openMenu(el);

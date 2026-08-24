@@ -4071,6 +4071,7 @@ var ErpCombosMenus = class extends i3 {
     this.courseError = "";
     this.optionDraft = {};
     this.editingChoice = null;
+    this.optionScope = "";
     this.optionReason = "";
     this.optionError = "";
     this.articles = [];
@@ -4501,6 +4502,7 @@ var ErpCombosMenus = class extends i3 {
   startEditChoice(choice) {
     if (!can("combos.manage_combo")) return;
     this.editingChoice = choice;
+    this.optionScope = choice.group_id;
     this.optionReason = "";
     this.optionError = "";
     this.optionDraft = {
@@ -4514,6 +4516,7 @@ var ErpCombosMenus = class extends i3 {
   cancelEditChoice() {
     const groupId = this.editingChoice?.group_id;
     this.editingChoice = null;
+    this.optionScope = "";
     this.optionReason = "";
     this.optionError = "";
     if (groupId) this.optionDraft = { ...this.optionDraft, [groupId]: { ref: "", delta: "" } };
@@ -4540,6 +4543,7 @@ var ErpCombosMenus = class extends i3 {
     if (!can("combos.manage_combo")) return;
     const blocked = this.optionBlockedKey(groupId);
     if (blocked) {
+      this.optionScope = groupId;
       this.optionReason = t5(blocked);
       return;
     }
@@ -4547,6 +4551,7 @@ var ErpCombosMenus = class extends i3 {
     const [source, ...rest] = draft.ref.split(":");
     const editing = this.editingIn(groupId);
     this.saving = true;
+    this.optionScope = groupId;
     this.optionError = "";
     this.optionReason = "";
     try {
@@ -4588,6 +4593,7 @@ var ErpCombosMenus = class extends i3 {
     [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
     this.choices = { ...this.choices, [choice.group_id]: reordered };
     this.saving = true;
+    this.optionScope = choice.group_id;
     this.optionError = "";
     try {
       for (const index of [from, to]) {
@@ -4611,6 +4617,7 @@ var ErpCombosMenus = class extends i3 {
   async deleteChoice(choice) {
     if (!can("combos.manage_combo")) return;
     this.saving = true;
+    this.optionScope = choice.group_id;
     this.optionError = "";
     try {
       await erplora().command("combos.options.delete", { option_id: choice.option_id });
@@ -4788,6 +4795,9 @@ var ErpCombosMenus = class extends i3 {
                 </ion-button>` : A}
           </div>
           <p class="help">${t5("ui.optionDeltaHelp")}</p>` : A}
+
+      ${this.optionScope === course.group_id && this.optionReason ? b2`<p class="reason" data-test="option-blocked-reason">${this.optionReason}</p>` : A}
+      ${this.optionScope === course.group_id && this.optionError ? b2`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.optionError}</ok-inline-feedback>` : A}
     `;
   }
   renderCourse(course, index) {
@@ -4877,8 +4887,6 @@ var ErpCombosMenus = class extends i3 {
 
         ${this.coursesLoading ? b2`<p class="muted" data-test="courses-loading">${t5("ui.coursesLoading")}</p>` : this.coursesError ? b2`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.coursesError}</ok-inline-feedback>` : this.courses.length === 0 ? b2`<p class="muted" data-test="courses-empty">${t5("ui.coursesEmpty")}</p>` : this.courses.map((c5, i7) => this.renderCourse(c5, i7))}
 
-        ${this.optionReason ? b2`<p class="reason" data-test="option-blocked-reason">${this.optionReason}</p>` : A}
-        ${this.optionError ? b2`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.optionError}</ok-inline-feedback>` : A}
         ${this.coursesLoading ? A : this.renderCourseForm()}
       </div>
     </div>`;
@@ -4997,6 +5005,9 @@ __decorateClass([
 __decorateClass([
   r5()
 ], ErpCombosMenus.prototype, "editingChoice", 2);
+__decorateClass([
+  r5()
+], ErpCombosMenus.prototype, "optionScope", 2);
 __decorateClass([
   r5()
 ], ErpCombosMenus.prototype, "optionReason", 2);

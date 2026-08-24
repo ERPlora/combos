@@ -210,6 +210,13 @@ export class ErpCombosMenus extends LitElement {
   @state() private optionDraft: Record<string, { ref: string; delta: string }> = {};
   /** The choice whose row is open in the form. `null` = the form adds a new one. */
   @state() private editingChoice: Choice | null = null;
+  /**
+   * The course the reason/failure below belongs to. Measured in Chromium at 390x844: painted once
+   * at the foot of the builder, the sentence explaining a refusal lands two screens under the
+   * button that was just tapped, which is the `title` attribute problem in another shape. A
+   * message about one course is painted IN that course.
+   */
+  @state() private optionScope = '';
   @state() private optionReason = '';
   @state() private optionError = '';
 
@@ -600,6 +607,7 @@ export class ErpCombosMenus extends LitElement {
   private startEditChoice(choice: Choice): void {
     if (!can('combos.manage_combo')) return;
     this.editingChoice = choice;
+    this.optionScope = choice.group_id;
     this.optionReason = ''; this.optionError = '';
     this.optionDraft = {
       ...this.optionDraft,
@@ -613,7 +621,7 @@ export class ErpCombosMenus extends LitElement {
   private cancelEditChoice(): void {
     const groupId = this.editingChoice?.group_id;
     this.editingChoice = null;
-    this.optionReason = ''; this.optionError = '';
+    this.optionScope = ''; this.optionReason = ''; this.optionError = '';
     if (groupId) this.optionDraft = { ...this.optionDraft, [groupId]: { ref: '', delta: '' } };
   }
 
@@ -640,7 +648,8 @@ export class ErpCombosMenus extends LitElement {
     if (!can('combos.manage_combo')) return;
     const blocked = this.optionBlockedKey(groupId);
     if (blocked) {
-      // The tap ANSWERS. This is the whole reason the button is not natively disabled.
+      // The tap ANSWERS, in the course it was tapped in.
+      this.optionScope = groupId;
       this.optionReason = t(blocked);
       return;
     }
@@ -648,6 +657,7 @@ export class ErpCombosMenus extends LitElement {
     const [source, ...rest] = draft.ref.split(':');
     const editing = this.editingIn(groupId);
     this.saving = true;
+    this.optionScope = groupId;
     this.optionError = ''; this.optionReason = '';
     try {
       // The reference stays OPAQUE both ways: `source` + `source_ref`, never the article name.
@@ -692,6 +702,7 @@ export class ErpCombosMenus extends LitElement {
     // Optimistic: the arrow answers immediately, and a failure reloads the truth from the server.
     this.choices = { ...this.choices, [choice.group_id]: reordered };
     this.saving = true;
+    this.optionScope = choice.group_id;
     this.optionError = '';
     try {
       for (const index of [from, to]) {
@@ -718,6 +729,7 @@ export class ErpCombosMenus extends LitElement {
   private async deleteChoice(choice: Choice): Promise<void> {
     if (!can('combos.manage_combo')) return;
     this.saving = true;
+    this.optionScope = choice.group_id;
     this.optionError = '';
     try {
       await erplora().command('combos.options.delete', { option_id: choice.option_id });
@@ -914,6 +926,11 @@ export class ErpCombosMenus extends LitElement {
           </div>
           <p class="help">${t('ui.optionDeltaHelp')}</p>`
         : nothing}
+
+      ${this.optionScope === course.group_id && this.optionReason
+        ? html`<p class="reason" data-test="option-blocked-reason">${this.optionReason}</p>` : nothing}
+      ${this.optionScope === course.group_id && this.optionError
+        ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.optionError}</ok-inline-feedback>` : nothing}
     `;
   }
 
@@ -1016,8 +1033,6 @@ export class ErpCombosMenus extends LitElement {
               ? html`<p class="muted" data-test="courses-empty">${t('ui.coursesEmpty')}</p>`
               : this.courses.map((c, i) => this.renderCourse(c, i))}
 
-        ${this.optionReason ? html`<p class="reason" data-test="option-blocked-reason">${this.optionReason}</p>` : nothing}
-        ${this.optionError ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.optionError}</ok-inline-feedback>` : nothing}
         ${this.coursesLoading ? nothing : this.renderCourseForm()}
       </div>
     </div>`;
