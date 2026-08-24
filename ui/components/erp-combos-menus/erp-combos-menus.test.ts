@@ -606,3 +606,290 @@ describe('the UI rules already paid for in other modules', () => {
     expect(at(el, 'save-option'), 'a read-only user is offered a choice form').toBeNull();
   });
 });
+
+// ── 8 · A choice is EDITED, not withdrawn and put back (combos#1) ─────────────────────────────
+//
+// `combos.options.update` was declared by the manifest from day one and nobody sent it, so the
+// only way to fix a typo in a supplement was to withdraw the choice and add it again. That is NOT
+// the same operation, and the difference is visible on the card:
+//
+//     before  Ensalada · Solomillo · Sopa
+//     after   Solomillo · Sopa · Ensalada        <- corrected 3,00 -> 3,50 and the menu reordered
+//
+// (measured on origin/main@cf248cb before this section existed). A menu del dia is READ in order,
+// so a course that reshuffles itself every time a price is corrected is a defect of use, not a
+// cosmetic one. The second half of the difference is atomicity: `ux_combos_choice_option` only
+// looks at live rows, so the withdrawal has to land BEFORE the re-add, and a failure in between
+// leaves the operator without the choice they only meant to retouch.
+//
+// 🔴 The assertions below go through a WRITING bench. A test that only inspects the payload cannot
+// see a position being lost, because losing it is what the SERVER does with `COALESCE(:sort_order,
+// 0)` when nobody sends the field: omit it and every edited choice silently jumps to the top.
+
+/** Bench of three choices in the first course, in the order the till will ask them. */
+function threeChoices(): void {
+  options = [
+    { option_id: 'o1', group_id: 'g1', source: 'product', source_ref: 'p1', price_delta: 0, sort_order: 0 },
+    { option_id: 'o2', group_id: 'g1', source: 'product', source_ref: 'p2', price_delta: 300, sort_order: 1 },
+    { option_id: 'o3', group_id: 'g1', source: 'service', source_ref: 's1', price_delta: 150, sort_order: 2 },
+  ];
+}
+
+/**
+ * Makes the bench WRITE. Without this the store answers the same three rows for ever and every
+ * assertion about "where the choice ended up" is vacuously true.
+ */
+function persistChoices(): void {
+  const client = (globalThis as Record<string, any>).erplora;
+  const record = client.command;
+  client.command = async (name: string, payload: Record<string, unknown>) => {
+    await record(name, payload);
+    if (name === 'combos.options.delete') {
+      options = options.filter((o) => o.option_id !== payload.option_id);
+    }
+    if (name === 'combos.options.create') {
+      options = [...options, {
+        option_id: `n${options.length + 1}`, group_id: String(payload.group_id),
+        source: String(payload.source), source_ref: String(payload.source_ref),
+        price_delta: Number(payload.price_delta ?? 0), sort_order: Number(payload.sort_order ?? 0),
+      }];
+    }
+    if (name === 'combos.options.update') {
+      options = options.map((o) => (o.option_id === payload.option_id
+        ? {
+          ...o, source: String(payload.source), source_ref: String(payload.source_ref),
+          price_delta: Number(payload.price_delta ?? 0), sort_order: Number(payload.sort_order ?? 0),
+        }
+        : o));
+    }
+    return {};
+  };
+}
+
+/** The choices of a course as the screen paints them, top to bottom. */
+const choiceOrder = (el: Mounted, groupId = 'g1') =>
+  [...el.shadowRoot.querySelectorAll(`[data-test="course"][data-group-id="${groupId}"] [data-test="choice"]`)]
+    .map((li) => li.getAttribute('data-option-id'));
+
+const choiceRow = (el: Mounted, optionId: string) =>
+  el.shadowRoot.querySelector(`[data-test="choice"][data-option-id="${optionId}"]`) as HTMLElement;
+
+const inRow = (el: Mounted, optionId: string, test: string) =>
+  choiceRow(el, optionId)?.querySelector(`[data-test="${test}"]`) as HTMLElement | null;
+
+describe('a choice is edited in place, keeping the position it holds in the course', () => {
+  beforeEach(() => {
+    threeChoices();
+    persistChoices();
+  });
+
+  it('every choice offers an edit control, not only a withdraw one', async () => {
+    const el = await mount();
+    await openMenu(el);
+    expect(choiceOrder(el), 'bench not as declared').toEqual(['o1', 'o2', 'o3']);
+    expect(inRow(el, 'o1', 'edit-choice'), 'a choice cannot be edited: the only route is delete + re-add').toBeTruthy();
+    expect(inRow(el, 'o1', 'delete-choice'), 'the withdraw control disappeared').toBeTruthy();
+  });
+
+  // 🔴 THE TEST THE ISSUE IS ABOUT.
+  it('correcting a supplement leaves the course in the SAME order', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const before = choiceOrder(el);
+
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    type(el, 'option-delta', '0,50');
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+
+    expect(choiceOrder(el), 'correcting a supplement REORDERED the menu').toEqual(before);
+    expect(options.find((o) => o.option_id === 'o1')!.price_delta, 'the supplement was not corrected').toBe(50);
+    expect(commands.map((c) => c.name).filter((n) => n.startsWith('combos.options.')),
+      'the choice was withdrawn and put back instead of edited').toEqual(['combos.options.update']);
+  });
+
+  // The mechanical half of the same rule: `option_update.sql` runs `COALESCE(:sort_order, 0)`, so
+  // a payload that omits the field does not "leave it alone" — it moves the choice to the top.
+  it('the update carries the position the choice already had, it does not let the server default it', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o3', 'edit-choice')!.click();
+    await settle(el);
+    type(el, 'option-delta', '2,00');
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+
+    const sent = commands.find((c) => c.name === 'combos.options.update')!;
+    expect(sent, 'no update was sent').toBeTruthy();
+    expect(sent.payload.option_id, 'the update does not say WHICH choice it edits').toBe('o3');
+    expect(sent.payload.sort_order, 'the position is not sent: the server COALESCEs it to 0 and the choice jumps to the top').toBe(2);
+    expect(sent.payload.price_delta, 'the supplement does not travel in minor units').toBe(200);
+  });
+
+  it('the form opens loaded with what the choice says today, not empty', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o2', 'edit-choice')!.click();
+    await settle(el);
+
+    const picker = at(el, 'option-picker') as unknown as { value: string };
+    expect(picker.value, 'the picker does not preselect the article being edited').toBe('product:p2');
+    expect(String((at(el, 'option-delta') as { value?: unknown }).value ?? ''),
+      'the supplement box does not carry the current supplement').toBe('3');
+    expect(choiceRow(el, 'o2').getAttribute('data-editing'),
+      'nothing marks WHICH choice is being edited').toBe('true');
+    expect(translated, 'it never says which choice is open for editing').toContain('ui.editingChoice');
+  });
+
+  it('editing the ARTICLE keeps the reference OPAQUE: source + source_ref, never the name', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    (at(el, 'option-picker') as HTMLElement)
+      .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'service:s1x', label: 'Corte de pelo' } }));
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+
+    const sent = commands.find((c) => c.name === 'combos.options.update')!;
+    expect(sent.payload.source, 'the catalogue the component comes from is not sent').toBe('service');
+    expect(sent.payload.source_ref, 'the opaque id is not sent').toBe('s1x');
+    expect(Object.keys(sent.payload), 'the article name is not part of the combos contract').not.toContain('name');
+    expect(choiceOrder(el), 'swapping the article moved the choice').toEqual(['o1', 'o2', 'o3']);
+  });
+
+  it('a NEGATIVE supplement can be set by editing, exactly as it can by adding', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o2', 'edit-choice')!.click();
+    await settle(el);
+    type(el, 'option-delta', '-1,50');
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+    expect(commands.find((c) => c.name === 'combos.options.update')!.payload.price_delta,
+      'a cheaper substitution is lost or clamped to 0 when edited').toBe(-150);
+  });
+
+  it('cancelling an edit changes nothing and returns the form to adding', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    type(el, 'option-delta', '9,99');
+    await settle(el);
+    at(el, 'cancel-choice')!.click();
+    await settle(el);
+
+    expect(commands.filter((c) => c.name.startsWith('combos.options.')), 'cancelling wrote something').toEqual([]);
+    expect(choiceRow(el, 'o1').getAttribute('data-editing'), 'the choice is still marked as being edited').toBe('false');
+    expect(String((at(el, 'option-delta') as { value?: unknown }).value ?? ''),
+      'the abandoned draft is still in the box, ready to be added as a new choice').toBe('');
+  });
+
+  // `ux_combos_choice_option (hub_id, group_id, source, source_ref) WHERE is_deleted = 0`. Same
+  // rule as the two CHECKs of section 4: what the database refuses, the screen explains first.
+  it('pointing a choice at an article the course already has is refused, with the reason in words', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    (at(el, 'option-picker') as HTMLElement)
+      .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p2' } }));
+    await settle(el);
+
+    const button = at(el, 'save-option')!;
+    expect(button.hasAttribute('disabled'), 'uses the native `disabled`: the tap is swallowed').toBe(false);
+    expect(button.getAttribute('aria-disabled'), 'a duplicate the database will refuse is offered as saveable').toBe('true');
+    button.click();
+    await settle(el);
+    expect(commands.filter((c) => c.name === 'combos.options.update'), 'a duplicate was sent to the database').toEqual([]);
+    expect(translated, 'the tap does not ANSWER with the reason').toContain('ui.errDuplicateArticle');
+    expect(at(el, 'option-blocked-reason'), 'the reason is not painted anywhere').toBeTruthy();
+  });
+
+  it('the same guard protects ADDING, which could always hit that index too', async () => {
+    const el = await mount();
+    await openMenu(el);
+    (at(el, 'option-picker') as HTMLElement)
+      .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p1' } }));
+    await settle(el);
+    expect(at(el, 'save-option')!.getAttribute('aria-disabled'),
+      'adding an article the course already has is offered as saveable').toBe('true');
+    at(el, 'save-option')!.click();
+    await settle(el);
+    expect(commands.filter((c) => c.name === 'combos.options.create'), 'a duplicate was sent to the database').toEqual([]);
+  });
+
+  it('editing a choice into ITSELF is not a duplicate', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    expect(at(el, 'save-option')!.getAttribute('aria-disabled'),
+      'the choice being edited is counted as its own duplicate').toBe('false');
+  });
+
+  // The order of the choices is the order the till offers them in, exactly like the courses. It is
+  // arrows and not drag & drop for the same reason it is arrows there: a tablet, a finger, and a
+  // list that must not reorder itself by accident.
+  it('the choices of a course are reordered with arrows, writing nothing but their positions', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o3', 'choice-up')!.click();
+    await settle(el);
+
+    expect(choiceOrder(el), 'the arrow did not move the choice').toEqual(['o1', 'o3', 'o2']);
+    const writes = commands.filter((c) => c.name.startsWith('combos.options.'));
+    expect(writes.map((c) => c.name), 'reordering withdraws and re-adds instead of updating')
+      .toEqual(['combos.options.update', 'combos.options.update']);
+    expect(writes.map((c) => [c.payload.option_id, c.payload.sort_order]).sort(),
+      'the two positions that swapped are not the ones written').toEqual([['o2', 2], ['o3', 1]]);
+    expect(writes.every((c) => typeof c.payload.source_ref === 'string' && c.payload.source_ref !== ''),
+      'the reorder update drops the reference, which `option_update.sql` would then blank').toBe(true);
+  });
+
+  it('the arrows at the ends are blocked and still answer, they are not natively disabled', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const first = inRow(el, 'o1', 'choice-up')!;
+    const last = inRow(el, 'o3', 'choice-down')!;
+    expect(first.getAttribute('aria-disabled'), 'the first choice can be moved further up').toBe('true');
+    expect(first.hasAttribute('disabled'), 'native `disabled` swallows the tap').toBe(false);
+    expect(last.getAttribute('aria-disabled'), 'the last choice can be moved further down').toBe('true');
+    expect(inRow(el, 'o2', 'choice-up')!.getAttribute('aria-disabled'), 'a middle choice cannot be moved').toBe('false');
+    first.click();
+    await settle(el);
+    expect(commands.filter((c) => c.name.startsWith('combos.options.')), 'a blocked arrow wrote anyway').toEqual([]);
+  });
+
+  it('without the manage permission there is no edit and no arrow, only what can be read', async () => {
+    (globalThis as Record<string, any>).erplora.hasPermission = (p: string) => p !== 'combos.manage_combo';
+    const el = await mount();
+    await openMenu(el);
+    expect(choiceOrder(el), 'a read-only user cannot see the choices at all').toEqual(['o1', 'o2', 'o3']);
+    expect(inRow(el, 'o1', 'edit-choice'), 'a read-only user is offered an edit control').toBeNull();
+    expect(inRow(el, 'o1', 'choice-up'), 'a read-only user is offered a reorder arrow').toBeNull();
+    expect(inRow(el, 'o1', 'delete-choice'), 'a read-only user is offered a withdraw control').toBeNull();
+  });
+
+  it('a failed edit is SAID and the screen goes back to the truth on the server', async () => {
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    (globalThis as Record<string, any>).erplora.command = async () => { throw new Error('boom'); };
+    type(el, 'option-delta', '1,00');
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+
+    expect(el.shadowRoot.querySelector('ok-inline-feedback[tone="danger"]'),
+      'the edit failed in silence and the screen looks saved').toBeTruthy();
+    expect(translated, 'the failure is not translated').toContain('ui.errSaveOption');
+  });
+});
