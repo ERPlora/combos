@@ -751,6 +751,8 @@ describe('a choice is edited in place, keeping the position it holds in the cour
 
     expect(choiceOrder(el), 'correcting a supplement REORDERED the menu').toEqual(before);
     expect(options.find((o) => o.option_id === 'o1')!.price_delta, 'the supplement was not corrected').toBe(50);
+    expect(choiceRow(el, 'o1').getAttribute('data-editing'),
+      'the form stayed on that choice: the next Add would overwrite it instead of adding').toBe('false');
     expect(commands.map((c) => c.name).filter((n) => n.startsWith('combos.options.')),
       'the choice was withdrawn and put back instead of edited').toEqual(['combos.options.update']);
   });
