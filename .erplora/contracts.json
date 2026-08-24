@@ -2,9 +2,26 @@
   "schema_version": 1,
   "module": "combos",
   "consumes": {
-    "queries": [],
-    "optional_queries": [],
-    "commands": [],
+    "queries": [
+      "combos.combos.list",
+      "combos.groups.list",
+      "combos.options.list"
+    ],
+    "optional_queries": [
+      "inventory.products.list",
+      "services.services.list",
+      "taxes.categories.list"
+    ],
+    "commands": [
+      "combos.combos.create",
+      "combos.combos.delete",
+      "combos.combos.update",
+      "combos.groups.create",
+      "combos.groups.delete",
+      "combos.groups.update",
+      "combos.options.create",
+      "combos.options.delete"
+    ],
     "events": [],
     "slots": []
   }
