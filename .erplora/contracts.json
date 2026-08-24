@@ -20,7 +20,8 @@
       "combos.groups.delete",
       "combos.groups.update",
       "combos.options.create",
-      "combos.options.delete"
+      "combos.options.delete",
+      "combos.options.update"
     ],
     "events": [],
     "slots": []

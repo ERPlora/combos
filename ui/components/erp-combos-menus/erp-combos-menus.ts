@@ -128,6 +128,9 @@ export class ErpCombosMenus extends LitElement {
     .choices { list-style:none; margin:.6rem 0 0; padding:0; display:flex; flex-direction:column; gap:.3rem; }
     .choices li { display:flex; gap:.5rem; align-items:center; font-size:.92rem; }
     .choices .delta { margin-left:auto; font-variant-numeric: tabular-nums; }
+    /* Pushed to the end of the row, and to the same place whether or not there is a supplement. */
+    .choices .row-actions { margin-left:auto; display:flex; align-items:center; gap:.1rem; }
+    .choices .delta + .row-actions { margin-left:.5rem; }
 
     .form { display:flex; flex-direction:column; gap:.7rem; }
     /* Wide enough to breathe on a tablet, single column on a phone. */
@@ -205,6 +208,15 @@ export class ErpCombosMenus extends LitElement {
 
   // ── Choice drafts, one per course ──────────────────────────────────────────────────────────
   @state() private optionDraft: Record<string, { ref: string; delta: string }> = {};
+  /** The choice whose row is open in the form. `null` = the form adds a new one. */
+  @state() private editingChoice: Choice | null = null;
+  /**
+   * The course the reason/failure below belongs to. Measured in Chromium at 390x844: painted once
+   * at the foot of the builder, the sentence explaining a refusal lands two screens under the
+   * button that was just tapped, which is the `title` attribute problem in another shape. A
+   * message about one course is painted IN that course.
+   */
+  @state() private optionScope = '';
   @state() private optionReason = '';
   @state() private optionError = '';
 
@@ -326,6 +338,7 @@ export class ErpCombosMenus extends LitElement {
     this.coursesError = '';
     this.courses = [];
     this.choices = {};
+    this.resetChoiceForm();
     this.resetCourseForm();
     await this.loadCourses();
   }
@@ -344,7 +357,11 @@ export class ErpCombosMenus extends LitElement {
         this.courses.map((c) => erplora().query<Choice[]>('combos.options.list', { group_id: c.group_id })),
       );
       const map: Record<string, Choice[]> = {};
-      this.courses.forEach((c, i) => { map[c.group_id] = perCourse[i] ?? []; });
+      // Sorted here for the same reason the courses are: the order IS the order the till offers
+      // them in, and the arrows below reorder an array, not a query.
+      this.courses.forEach((c, i) => {
+        map[c.group_id] = [...(perCourse[i] ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      });
       this.choices = map;
     } catch (e) {
       this.coursesError = domainErrorText(e, 'ui.errLoadCourses');
@@ -572,26 +589,112 @@ export class ErpCombosMenus extends LitElement {
     this.optionDraft = { ...this.optionDraft, [groupId]: { ...this.draft(groupId), ...patch } };
   }
 
+  /** The choice the form of `groupId` is editing, or null when it is adding a new one. */
+  private editingIn(groupId: string): Choice | null {
+    return this.editingChoice?.group_id === groupId ? this.editingChoice : null;
+  }
+
+  /**
+   * Opens an existing choice in the form of its own course.
+   *
+   * This is the whole point of combos#1: withdrawing a choice and adding it back is NOT the same
+   * operation. It loses the position (the re-added row lands last, so correcting one cent
+   * reorders the printed menu) and it is not atomic — `ux_combos_choice_option` only looks at live
+   * rows, so the withdrawal has to land first, and a failure in between leaves the operator
+   * without the choice they only meant to retouch.
+   */
+  private startEditChoice(choice: Choice): void {
+    if (!can('combos.manage_combo')) return;
+    this.editingChoice = choice;
+    this.optionScope = choice.group_id;
+    this.optionReason = ''; this.optionError = '';
+    this.optionDraft = {
+      ...this.optionDraft,
+      [choice.group_id]: {
+        ref: `${choice.source}:${choice.source_ref}`,
+        delta: choice.price_delta ? minorToInput(choice.price_delta) : '',
+      },
+    };
+  }
+
+  private cancelEditChoice(): void {
+    const groupId = this.editingChoice?.group_id;
+    this.editingChoice = null;
+    this.optionScope = ''; this.optionReason = ''; this.optionError = '';
+    if (groupId) this.optionDraft = { ...this.optionDraft, [groupId]: { ref: '', delta: '' } };
+  }
+
+  /**
+   * Everything the choice form holds, back to zero — on OPENING a menu, next to the
+   * `resetCourseForm` that was already there, and only there: the list is the only door into a
+   * builder, so every entry passes through here.
+   *
+   * A refusal, and a half-typed draft, belong to the attempt that caused them; leaving the menu
+   * ends that attempt. The four fields are cleared together on purpose — clearing three of them
+   * is exactly how a red sentence comes back to a menu where nothing was refused.
+   */
+  private resetChoiceForm(): void {
+    this.editingChoice = null;
+    this.optionDraft = {};
+    this.optionScope = ''; this.optionReason = ''; this.optionError = '';
+  }
+
+  /**
+   * Why the choice of this course cannot be saved yet, as an i18n key — or '' when it can.
+   *
+   * `ux_combos_choice_option (hub_id, group_id, source, source_ref) WHERE is_deleted = 0` refuses
+   * the same article twice in the same course. Same rule as the two CHECKs of the combo and the
+   * course: what the database refuses, the screen explains FIRST, because reaching Postgres with
+   * it means showing the merchant a unique-violation instead of a sentence. Editing a choice into
+   * itself is not a duplicate, so the row being edited is excluded from the comparison.
+   */
+  private optionBlockedKey(groupId: string): string {
+    const draft = this.draft(groupId);
+    if (!draft.ref) return 'ui.errNoArticle';
+    const editing = this.editingIn(groupId);
+    const clash = (this.choices[groupId] ?? []).some(
+      (o) => `${o.source}:${o.source_ref}` === draft.ref && o.option_id !== editing?.option_id,
+    );
+    return clash ? 'ui.errDuplicateArticle' : '';
+  }
+
   private async saveChoice(groupId: string): Promise<void> {
     if (!can('combos.manage_combo')) return;
-    const draft = this.draft(groupId);
-    if (!draft.ref) {
-      this.optionReason = t('ui.errNoArticle');
+    const blocked = this.optionBlockedKey(groupId);
+    if (blocked) {
+      // The tap ANSWERS, in the course it was tapped in.
+      this.optionScope = groupId;
+      this.optionReason = t(blocked);
       return;
     }
+    const draft = this.draft(groupId);
     const [source, ...rest] = draft.ref.split(':');
+    const editing = this.editingIn(groupId);
     this.saving = true;
+    this.optionScope = groupId;
     this.optionError = ''; this.optionReason = '';
     try {
-      await erplora().command('combos.options.create', {
-        group_id: groupId,
-        // The reference stays OPAQUE: `source` + `source_ref`, never the article name. This module
-        // does not learn what those rows are, which is what keeps `depends_on` empty.
-        source,
-        source_ref: rest.join(':'),
-        price_delta: amountToMinor(draft.delta),
-        sort_order: (this.choices[groupId] ?? []).length,
-      });
+      // The reference stays OPAQUE both ways: `source` + `source_ref`, never the article name.
+      // This module does not learn what those rows are, which is what keeps `depends_on` empty.
+      const article = { source, source_ref: rest.join(':'), price_delta: amountToMinor(draft.delta) };
+      if (editing) {
+        await erplora().command('combos.options.update', {
+          option_id: editing.option_id,
+          ...article,
+          // The position it ALREADY holds. `option_update.sql` runs COALESCE(:sort_order, 0), so
+          // omitting the field is not "leave it as it is": it sends the choice to the top of the
+          // course on every single edit.
+          sort_order: editing.sort_order ?? 0,
+        });
+        this.editingChoice = null;
+      } else {
+        await erplora().command('combos.options.create', {
+          group_id: groupId,
+          ...article,
+          // A new choice goes LAST, the only placement that cannot reshuffle what is agreed.
+          sort_order: (this.choices[groupId] ?? []).length,
+        });
+      }
       this.optionDraft = { ...this.optionDraft, [groupId]: { ref: '', delta: '' } };
       await this.loadCourses();
     } catch (e) {
@@ -601,12 +704,50 @@ export class ErpCombosMenus extends LitElement {
     }
   }
 
+  /** Moves a choice one step inside its course, then persists the two positions that swapped. */
+  private async moveChoice(choice: Choice, delta: -1 | 1): Promise<void> {
+    if (!can('combos.manage_combo')) return;
+    const list = this.choices[choice.group_id] ?? [];
+    const from = list.findIndex((o) => o.option_id === choice.option_id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= list.length) return;
+    const reordered = [...list];
+    [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
+    // Optimistic: the arrow answers immediately, and a failure reloads the truth from the server.
+    this.choices = { ...this.choices, [choice.group_id]: reordered };
+    this.saving = true;
+    this.optionScope = choice.group_id;
+    this.optionError = '';
+    try {
+      for (const index of [from, to]) {
+        const o = reordered[index];
+        // `option_update.sql` rewrites the WHOLE row, so the reference and the supplement travel
+        // with the new position: sending only `sort_order` would blank the component.
+        await erplora().command('combos.options.update', {
+          option_id: o.option_id,
+          source: o.source,
+          source_ref: o.source_ref,
+          price_delta: o.price_delta,
+          sort_order: index,
+        });
+      }
+      await this.loadCourses();
+    } catch (e) {
+      this.optionError = domainErrorText(e, 'ui.errSaveOption');
+      await this.loadCourses();
+    } finally {
+      this.saving = false;
+    }
+  }
+
   private async deleteChoice(choice: Choice): Promise<void> {
     if (!can('combos.manage_combo')) return;
     this.saving = true;
+    this.optionScope = choice.group_id;
     this.optionError = '';
     try {
       await erplora().command('combos.options.delete', { option_id: choice.option_id });
+      if (this.editingChoice?.option_id === choice.option_id) this.cancelEditChoice();
       await this.loadCourses();
     } catch (e) {
       this.optionError = domainErrorText(e, 'ui.errDeleteOption');
@@ -730,24 +871,48 @@ export class ErpCombosMenus extends LitElement {
     const rows = this.choices[course.group_id] ?? [];
     const manage = can('combos.manage_combo');
     const draft = this.draft(course.group_id);
+    const editing = this.editingIn(course.group_id);
     return html`
       <div class="rule">${t('ui.optionsTitle')}</div>
       ${rows.length === 0
         ? html`<p class="muted" data-test="choices-empty">${t('ui.optionsEmpty')}</p>`
         : html`<ul class="choices">
-            ${rows.map((o) => html`<li data-test="choice" data-option-id=${o.option_id}>
+            ${rows.map((o, i) => html`<li data-test="choice" data-option-id=${o.option_id}
+              data-editing=${String(this.editingChoice?.option_id === o.option_id)}>
               <span>${this.articleLabel(o)}</span>
               ${o.price_delta ? html`<span class="delta">${erplora().formatMoney(o.price_delta)}</span>` : nothing}
               ${manage
-                ? html`<ion-button size="small" data-test="delete-choice" @click=${() => this.deleteChoice(o)}>
-                    <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
-                  </ion-button>`
+                ? html`<span class="row-actions">
+                    <ion-button size="small" data-test="choice-up" aria-label=${t('ui.moveUp')}
+                      data-blocked=${String(i === 0)} aria-disabled=${String(i === 0)}
+                      @click=${() => this.moveChoice(o, -1)}>
+                      <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
+                    <ion-button size="small" data-test="choice-down" aria-label=${t('ui.moveDown')}
+                      data-blocked=${String(i === rows.length - 1)} aria-disabled=${String(i === rows.length - 1)}
+                      @click=${() => this.moveChoice(o, 1)}>
+                      <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
+                    <ion-button size="small" data-test="edit-choice" aria-label=${t('ui.optionEdit')}
+                      @click=${() => this.startEditChoice(o)}>
+                      <ion-icon name="create-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
+                    <ion-button size="small" data-test="delete-choice" aria-label=${t('ui.optionDelete')}
+                      @click=${() => this.deleteChoice(o)}>
+                      <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
+                  </span>`
                 : nothing}
             </li>`)}
           </ul>`}
 
       ${manage
-        ? html`<div class="row">
+        ? html`${editing
+            ? html`<p class="help" data-test="editing-choice" data-active="true">
+                ${t('ui.editingChoice', { article: this.articleLabel(editing) })}
+              </p>`
+            : nothing}
+          <div class="row">
             <!-- Typeahead over BOTH catalogues. The server searches, so a 500-article shop is
                  reachable; a first page of 50 filtered in the browser would hide the rest. -->
             <ok-combo
@@ -763,13 +928,23 @@ export class ErpCombosMenus extends LitElement {
               @ionInput=${(e: CustomEvent) => this.patchDraft(course.group_id, { delta: String((e.target as HTMLInputElement).value ?? '') })}></ion-input>
             ${this.blockingButton({
               test: 'save-option',
-              blocked: !draft.ref,
-              label: t('ui.optionAdd'),
+              blocked: Boolean(this.optionBlockedKey(course.group_id)),
+              label: editing ? (this.saving ? t('ui.saving') : t('ui.save')) : t('ui.optionAdd'),
               onClick: () => this.saveChoice(course.group_id),
             })}
+            ${editing
+              ? html`<ion-button size="small" data-test="cancel-choice" @click=${() => this.cancelEditChoice()}>
+                  ${t('ui.cancel')}
+                </ion-button>`
+              : nothing}
           </div>
           <p class="help">${t('ui.optionDeltaHelp')}</p>`
         : nothing}
+
+      ${this.optionScope === course.group_id && this.optionReason
+        ? html`<p class="reason" data-test="option-blocked-reason">${this.optionReason}</p>` : nothing}
+      ${this.optionScope === course.group_id && this.optionError
+        ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.optionError}</ok-inline-feedback>` : nothing}
     `;
   }
 
@@ -872,8 +1047,6 @@ export class ErpCombosMenus extends LitElement {
               ? html`<p class="muted" data-test="courses-empty">${t('ui.coursesEmpty')}</p>`
               : this.courses.map((c, i) => this.renderCourse(c, i))}
 
-        ${this.optionReason ? html`<p class="reason" data-test="option-blocked-reason">${this.optionReason}</p>` : nothing}
-        ${this.optionError ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.optionError}</ok-inline-feedback>` : nothing}
         ${this.coursesLoading ? nothing : this.renderCourseForm()}
       </div>
     </div>`;
