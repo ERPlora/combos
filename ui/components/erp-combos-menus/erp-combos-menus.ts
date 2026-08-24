@@ -145,6 +145,23 @@ function amountBlockedKey(typed: unknown): string {
 }
 
 /**
+ * The words the refusal is built from: what was typed, and THE TWO READINGS OF IT.
+ *
+ * Not a canned example. The first version quoted a fixed «1250 or 1,25» whatever the amount was,
+ * so typing 2.500 was answered with a sentence about somebody else's number — which reads like a
+ * bug and teaches nothing. Both readings are formatted in the hub's locale, so the person can
+ * copy the one they meant straight back into the field.
+ */
+function amountReadings(typed: unknown): Record<string, unknown> {
+  const raw = String(typed ?? '').trim();
+  const d = decimals();
+  const digitsOnly = raw.replace(/[^\d]/g, '');
+  const grouped = minorToInput(majorToMinor(digitsOnly || '0', d));
+  const decimal = minorToInput(majorToMinor(raw.replace(/[^\d.,]/g, '').replace(',', '.'), d));
+  return { typed: raw, grouped, decimal };
+}
+
+/**
  * MINOR units → what a human types into the field, in the HUB's locale and the CURRENCY's
  * decimals: 1350 → «13,50» in es, «13.50» in en. Two rules, both load-bearing:
  *
@@ -551,7 +568,7 @@ export class ErpCombosMenus extends LitElement {
       // The tap ANSWERS. This is the whole reason the button is not natively disabled.
       // `typed` is what they actually wrote: an unreadable amount is quoted back, because
       // "this is not an amount" without saying WHICH one is a dead end on a busy counter.
-      this.comboReason = t(blocked, { typed: this.fPrice.trim() });
+      this.comboReason = t(blocked, amountReadings(this.fPrice));
       return;
     }
     this.saving = true;
@@ -797,7 +814,7 @@ export class ErpCombosMenus extends LitElement {
     if (blocked) {
       // The tap ANSWERS, in the course it was tapped in.
       this.optionScope = groupId;
-      this.optionReason = t(blocked, { typed: this.draft(groupId).delta.trim() });
+      this.optionReason = t(blocked, amountReadings(this.draft(groupId).delta));
       return;
     }
     const draft = this.draft(groupId);

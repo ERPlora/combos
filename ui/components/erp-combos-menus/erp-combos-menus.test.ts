@@ -1296,6 +1296,26 @@ describe('money is written into the field in the language of the hub, and read b
     expect(translated, 'the refusal has no sentence of its own').toContain('ui.errAmbiguousAmount');
   });
 
+  // Caught in the browser after the first green: the refusal quoted a HARDCODED example, so
+  // typing `2.500` was answered with "could be 1250 or 1,25". A sentence that explains someone
+  // else's number is worse than no sentence — it reads like a bug and teaches nothing. The two
+  // readings are of the amount ACTUALLY typed. (Asserting the interpolated numbers, not the
+  // prose: reword the sentence and this stays green.)
+  it('the refusal names the two readings OF THE TYPED AMOUNT, not a canned example', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combo-price', '2.500');
+    await settle(el);
+    at(el, 'save-combo')!.click();
+    await settle(el);
+    const said = words(at(el, 'combo-blocked-reason'));
+    expect(said, 'the refusal does not quote what was typed').toContain('2.500');
+    expect(said, 'the refusal does not offer the grouped reading of THIS amount').toContain('2500');
+    expect(said, 'the refusal does not offer the decimal reading of THIS amount').toContain('2,50');
+    expect(said, 'the refusal is answering about a different number').not.toContain('1250');
+  });
+
   it('three digits after the separator are NOT ambiguous when the currency has three', async () => {
     // KWD: 1,250 dinars is an ordinary amount, not a riddle. The rule reads the CURRENCY, not a 2.
     (globalThis as Record<string, any>).erplora.currencyDecimals = 3;
