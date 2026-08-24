@@ -18,7 +18,6 @@
     "searchMenu": "Search a menu…",
     "loading": "Loading…",
     "emptyMenus": "No menus yet. Create the first one with the + button.",
-
     "actionEdit": "Edit details",
     "actionDelete": "Withdraw",
     "actionAdd": "Add",
@@ -28,7 +27,6 @@
     "delete": "Withdraw",
     "deleting": "Withdrawing…",
     "back": "All menus",
-
     "newMenuTitle": "New menu",
     "editMenuTitle": "Menu · {name}",
     "fieldName": "Name",
@@ -40,7 +38,6 @@
     "fieldTaxCategoryHelp": "The rate the whole menu is billed at.",
     "fieldActive": "On sale",
     "fieldOrder": "Order on the menu list",
-
     "supplyLabel": "How is it sold?",
     "supplyService": "Eaten in (hospitality service)",
     "supplyServiceHelp": "ONE line at the menu's own rate, drinks included. This is the Spanish menu del día.",
@@ -48,7 +45,6 @@
     "supplyGoodsHelp": "The closed price is SPLIT into ONE LINE PER COMPONENT, each at its own rate.",
     "supplyGoodsWarning": "This menu is billed as goods: its price will be split across the components you add, one line each.",
     "supplyServiceWarning": "This menu is billed as a single service: one line at its VAT category, whatever the components are taxed at.",
-
     "coursesTitle": "Courses",
     "coursesHelp": "A course is a step of THIS menu — Starter, Main, Dessert, Drink. Its order is the order it is asked for.",
     "coursesEmpty": "No courses yet. Add the first one — a menu with no course has nothing to pick.",
@@ -68,7 +64,6 @@
     "courseNoCeiling": "no limit",
     "courseRepeat": "may repeat",
     "courseNoRepeat": "no repeats",
-
     "optionsTitle": "Choices",
     "optionsEmpty": "No choices yet: nobody can resolve this course.",
     "optionPicker": "Catalogue article",
@@ -83,11 +78,9 @@
     "moduleServices": "Services",
     "catalogueEmpty": "No articles in the catalogue yet.",
     "unknownArticle": "Article {ref} (no longer in the catalogue)",
-
     "deleteMenuTitle": "Withdraw this menu?",
     "deleteMenuConfirm": "«{name}» stops being on sale, together with its courses and choices. Tickets already issued keep reading it.",
     "deleteCourseConfirm": "Remove the course «{name}» and its choices?",
-
     "errNoTaxCategory": "A menu eaten in needs its own VAT category: without it, it cannot be billed at all.",
     "errNoName": "The menu needs a name.",
     "errCeilingBelowFloor": "The maximum ({max}) is below the minimum ({min}): nobody could ever satisfy this course.",
@@ -98,7 +91,9 @@
     "errLoadCourses": "The courses of this menu could not be loaded.",
     "errDeleteMenu": "The menu could not be withdrawn.",
     "errDeleteCourse": "The course could not be removed.",
-    "errDeleteOption": "The choice could not be removed."
+    "errDeleteOption": "The choice could not be removed.",
+    "moveUp": "Move up",
+    "moveDown": "Move down"
   },
   "errors": {
     "combos.combo_in_use": "This menu is being used and cannot be withdrawn: {message}"

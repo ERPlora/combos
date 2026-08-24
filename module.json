@@ -19,6 +19,17 @@
     ]
   },
   "depends_on": [],
+  "ui": {
+    "entry": "dist/combos.esm.js"
+  },
+  "navigation": [
+    {
+      "id": "menus",
+      "label": "Menus",
+      "icon": "restaurant-outline",
+      "component": "erp-combos-menus"
+    }
+  ],
   "permissions": [
     "combos.view_combo",
     "combos.manage_combo"
