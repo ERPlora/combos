@@ -518,14 +518,39 @@ describe('the three states that are not the happy path are painted', () => {
 // ── 7 · i18n and the UI rules already paid for elsewhere ─────────────────────────────────────
 
 describe('the UI rules already paid for in other modules', () => {
+  // 🔴 BOTH VIEWS, not just the one on screen at the end. The builder REPLACES the list, so the
+  // combo form (which lives in the data-table create panel) is gone once a menu is open. A single
+  // pass after `openMenu` inspects only the builder's controls and lets the whole combo form ship
+  // without `mode="md"` — a mutation that dropped it there survived until this loop existed.
+  const fillControls = (el: Mounted) =>
+    [...el.shadowRoot.querySelectorAll('ion-input[fill], ion-select[fill], ion-textarea[fill]')];
+
+  const namesOf = (nodes: Element[]) =>
+    nodes.map((c) => `${c.tagName.toLowerCase()}:${c.getAttribute('data-test') ?? c.getAttribute('label') ?? ''}`);
+
   it('every form control with `fill` carries `mode="md"` (in `ios` fill is a no-op, ADR-0143)', async () => {
     const el = await mount();
+
+    // View 1: the menu list, whose create panel holds the whole combo form.
+    const onList = fillControls(el);
+    expect(onList.length, 'the menu list has no form control at all: something is wrong').toBeGreaterThan(0);
+    expect(namesOf(onList.filter((c) => c.getAttribute('mode') !== 'md')),
+      'these controls of the MENU form render with no box and no border in the hub shell').toEqual([]);
+
+    // View 2: the builder, with the course form and the choice rows.
     await openMenu(el);
-    const withFill = [...el.shadowRoot.querySelectorAll('ion-input[fill], ion-select[fill], ion-textarea[fill]')];
-    expect(withFill.filter((c) => c.getAttribute('mode') !== 'md')
-      .map((c) => `${c.tagName.toLowerCase()}:${c.getAttribute('label') ?? c.getAttribute('data-test') ?? ''}`),
-      'these controls render with no box and no border in the hub shell').toEqual([]);
-    expect(withFill.length, 'the screen has no form control at all: something is wrong').toBeGreaterThan(0);
+    const onBuilder = fillControls(el);
+    expect(onBuilder.length, 'the builder has no form control at all: something is wrong').toBeGreaterThan(0);
+    expect(namesOf(onBuilder.filter((c) => c.getAttribute('mode') !== 'md')),
+      'these controls of the BUILDER render with no box and no border in the hub shell').toEqual([]);
+
+    // And `goods` swaps part of the combo form, so its branch is inspected too.
+    el.shadowRoot.querySelector('[data-test="back-to-menus"]')!.dispatchEvent(new MouseEvent('click'));
+    await settle(el);
+    type(el, 'supply-kind', 'goods');
+    await settle(el);
+    expect(namesOf(fillControls(el).filter((c) => c.getAttribute('mode') !== 'md')),
+      'the `goods` branch of the menu form ships a control the shell will not paint').toEqual([]);
   });
 
   it('no visible string is hardcoded: they all go through the module catalogue', async () => {
