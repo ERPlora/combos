@@ -172,6 +172,32 @@ export class ErpCombosMenus extends LitElement {
       --background: var(--ion-color-danger, #c5000f);
       --color: var(--ion-color-danger-contrast, #fff);
     }
+    /*
+     * ONE TOUCH TARGET SIZE FOR THE WHOLE BUILDER, NOT ONE PER ROW (combos#4).
+     * Measured on the built bundle in Chromium with Ionic in ios (the mode the shell pins,
+     * ADR-0143), at 390x844, 820x1180 and 1440x900: an icon-only ion-button size=small came out
+     * 28,1 x 28,1 px in all three, with 5,6 px between neighbours -- centres 33,7 px apart, four
+     * of them in a row, and the last one is Retirar. A mis-tap there withdraws the choice next to
+     * the one that was aimed at.
+     *
+     * 44 is the floor Apple HIG and WCAG 2.1 SC 2.5.5 (AAA) both put it at, and it is what the
+     * rest of ERPlora already settled on with tests behind it: ok-data-table pins 44 for the row
+     * actions of the list half of THIS screen, and invoice, cash_register, kitchen, customers,
+     * appointments and reservations pin the same 44.
+     *
+     * Pinned for every ion-button of the component, not only the icon-only ones: the arrows of a
+     * course share a card head with its Editar and Retirar, so sizing one and not the other is
+     * how a card ends up with two heights -- worse than the small size it replaced.
+     *
+     * --min-height as well as min-height on purpose: min-height on the host reserves the box, but
+     * what the finger actually lands on is the .button-native Ionic paints inside, and that one
+     * follows the custom property.
+     */
+    ion-button { min-height:44px; --min-height:44px; }
+    /* No label to widen them, so these are the ones that collapse. Square, and padding-free so
+       the icon keeps the middle. */
+    .icon-btn { min-width:44px; min-height:44px; --min-height:44px; --padding-start:0; --padding-end:0; }
+
     .reason { color: var(--ion-color-danger, #d9480f); font-size:.85rem; margin:.2rem 0 0; }
     .muted { opacity:.75; font-size:.9rem; }
   `;
@@ -883,21 +909,21 @@ export class ErpCombosMenus extends LitElement {
               ${o.price_delta ? html`<span class="delta">${erplora().formatMoney(o.price_delta)}</span>` : nothing}
               ${manage
                 ? html`<span class="row-actions">
-                    <ion-button size="small" data-test="choice-up" aria-label=${t('ui.moveUp')}
+                    <ion-button size="small" class="icon-btn" data-test="choice-up" aria-label=${t('ui.moveUp')}
                       data-blocked=${String(i === 0)} aria-disabled=${String(i === 0)}
                       @click=${() => this.moveChoice(o, -1)}>
                       <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="choice-down" aria-label=${t('ui.moveDown')}
+                    <ion-button size="small" class="icon-btn" data-test="choice-down" aria-label=${t('ui.moveDown')}
                       data-blocked=${String(i === rows.length - 1)} aria-disabled=${String(i === rows.length - 1)}
                       @click=${() => this.moveChoice(o, 1)}>
                       <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="edit-choice" aria-label=${t('ui.optionEdit')}
+                    <ion-button size="small" class="icon-btn" data-test="edit-choice" aria-label=${t('ui.optionEdit')}
                       @click=${() => this.startEditChoice(o)}>
                       <ion-icon name="create-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="delete-choice" aria-label=${t('ui.optionDelete')}
+                    <ion-button size="small" class="icon-btn" data-test="delete-choice" aria-label=${t('ui.optionDelete')}
                       @click=${() => this.deleteChoice(o)}>
                       <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
                     </ion-button>
@@ -957,12 +983,12 @@ export class ErpCombosMenus extends LitElement {
         <span class="badge" data-test="course-rule">${this.courseRule(course)}</span>
         ${manage
           ? html`
-            <ion-button size="small" data-test="course-up" aria-label=${t('ui.moveUp')}
+            <ion-button size="small" class="icon-btn" data-test="course-up" aria-label=${t('ui.moveUp')}
               data-blocked=${String(index === 0)} aria-disabled=${String(index === 0)}
               @click=${() => this.moveCourse(course, -1)}>
               <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
             </ion-button>
-            <ion-button size="small" data-test="course-down" aria-label=${t('ui.moveDown')}
+            <ion-button size="small" class="icon-btn" data-test="course-down" aria-label=${t('ui.moveDown')}
               data-blocked=${String(index === this.courses.length - 1)} aria-disabled=${String(index === this.courses.length - 1)}
               @click=${() => this.moveCourse(course, 1)}>
               <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>

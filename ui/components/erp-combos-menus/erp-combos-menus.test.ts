@@ -1032,3 +1032,97 @@ describe('a choice is edited in place, keeping the position it holds in the cour
       'the screen reported a failure but wrote anyway').toBe(0);
   });
 });
+
+// ── 9 · Every control of the builder is a target a FINGER can hit (combos#4) ──────────────────
+//
+// Measured on origin/main@9a84fed in Chromium, on the built bundle, with Ionic in `ios` (the mode
+// the shell pins, ADR-0143), at 390×844, 820×1180 and 1440×900: the six icon-only controls of the
+// builder were **28,1 × 28,1 px** in all three, with 5,6 px between neighbours — centres 33,7 px
+// apart, four of them in a row, and the last one is Retirar. A mis-tap there is not "nothing
+// happens": it withdraws the choice next to the one that was aimed at.
+//
+// 44 is the floor: Apple HIG and WCAG 2.1 SC 2.5.5 (AAA) both put it there, Material puts it at
+// 48, and the rest of ERPlora already settled on 44 with tests behind it — `ok-data-table` pins
+// `.actions ion-button { min-width: 44px; min-height: 44px }` for the row actions of the list half
+// of this very screen, and invoice, cash_register, kitchen, customers, appointments and
+// reservations pin the same 44 on their own buttons.
+//
+// 🔴 IT IS PINNED FOR THE WHOLE SCREEN, NOT FOR THE ROW. The rule these tests exist to hold is
+// that there is ONE height: the arrows of a course sit in the same card head as its Editar and
+// Retirar, and the supplement form sits in the same card as the rows. Fixing only the choice
+// controls is how a card ends up with two sizes, which is worse than the small size it replaced.
+//
+// happy-dom does no layout, so the pixels are not measured here — the CONTRACT that produces them
+// is: the controls declare the shared class, and the stylesheet pins that class at 44. The
+// measurement itself is redone in a real browser and written into the PR.
+
+/** The `min-*` a rule pins for `sel`, in px, or null when the rule does not pin it. */
+function pinnedPx(css: string, sel: string, prop: 'min-width' | 'min-height'): number | null {
+  // The declaration block of the rule, taken from the component's own stylesheet.
+  const rule = new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css);
+  if (!rule) return null;
+  const decl = new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*([0-9.]+)px`).exec(rule[1]);
+  return decl ? Number(decl[1]) : null;
+}
+
+const styleSheet = (el: Mounted): string => {
+  const ctor = el.constructor as unknown as { styles: { cssText: string } | { cssText: string }[] };
+  const s = ctor.styles;
+  return Array.isArray(s) ? s.map((x) => x.cssText).join('\n') : s.cssText;
+};
+
+describe('every control of the builder is a target a finger can hit', () => {
+  /** The icon-only controls: no label to widen them, so they are the ones that collapse to 28. */
+  const ICON_ONLY = ['course-up', 'course-down', 'choice-up', 'choice-down', 'edit-choice', 'delete-choice'];
+  /** Controls WITH a label that share a row with the icon-only ones. Same row, same height. */
+  const LABELLED = ['edit-course', 'delete-course', 'back-to-menus', 'save-option'];
+
+  beforeEach(() => {
+    threeChoices();
+    persistChoices();
+  });
+
+  it('the icon-only controls all declare the same touch-target class', async () => {
+    const el = await mount();
+    await openMenu(el);
+    for (const test of ICON_ONLY) {
+      const btn = el.shadowRoot.querySelector(`[data-test="${test}"]`);
+      expect(btn, `\`${test}\` is not painted: the bench does not cover it`).toBeTruthy();
+      expect(btn!.classList.contains('icon-btn'),
+        `\`${test}\` does not carry the touch-target class: it keeps whatever size Ionic gives it`)
+        .toBe(true);
+    }
+  });
+
+  it('that class is pinned at 44×44 in the stylesheet, floor of Apple HIG and WCAG 2.5.5', async () => {
+    const css = styleSheet(await mount());
+    expect(pinnedPx(css, '.icon-btn', 'min-width'),
+      '`.icon-btn` does not pin a min-width: an icon-only ion-button collapses to 28 px')
+      .toBeGreaterThanOrEqual(44);
+    expect(pinnedPx(css, '.icon-btn', 'min-height'),
+      '`.icon-btn` does not pin a min-height: an icon-only ion-button collapses to 28 px')
+      .toBeGreaterThanOrEqual(44);
+  });
+
+  it('the labelled controls of the same rows get the same height: one card, one size', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const css = styleSheet(el);
+    expect(pinnedPx(css, 'ion-button', 'min-height'),
+      'the height is pinned per control instead of for the screen: the card ends up with two sizes')
+      .toBeGreaterThanOrEqual(44);
+    for (const test of LABELLED) {
+      expect(el.shadowRoot.querySelector(`[data-test="${test}"]`),
+        `\`${test}\` is not painted: the bench does not cover the row it shares`).toBeTruthy();
+    }
+  });
+
+  it('the height survives Ionic: it is set on the host AND on the ion-button variable', async () => {
+    // `min-height` on the host alone is not enough on every Ionic control: the inner
+    // `.button-native` is what is actually tapped, and it follows `--min-height`. Both are pinned
+    // so the target is the box the finger lands on, not only the box the layout reserves.
+    const css = styleSheet(await mount());
+    expect(/--min-height:\s*44px/.test(css),
+      'only the host is pinned: the inner button Ionic actually paints can stay smaller').toBe(true);
+  });
+});
