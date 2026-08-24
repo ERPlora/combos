@@ -33,6 +33,8 @@
 //     (ADR-0127), and an absent owner module is SAID in words instead of being served as an empty
 //     dropdown that looks like an empty catalogue.
 import { beforeEach, describe, expect, it } from 'vitest';
+import esLocale from '../../../locales/es.json';
+import enLocale from '../../../locales/en.json';
 
 // ── Bench: a hub with two menus, one of them with two courses built ──────────────────────────
 
@@ -464,10 +466,13 @@ describe('the article picker does not give combos a hard dependency', () => {
       .not.toContain('name');
   });
 
+  // `product:p1` is ALREADY the only choice of this course in the bench, and the unique index
+  // refuses the same article twice in the same course — so the supplement is exercised on an
+  // article the course does not have yet. The rule under test is the negative delta, not the index.
   it('accepts a NEGATIVE supplement: a cheaper substitution is a real menu', async () => {
     const el = await mount();
     await openMenu(el);
-    picker(el).dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p1', label: 'Ensalada' } }));
+    picker(el).dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p2', label: 'Solomillo' } }));
     type(el, 'option-delta', '-1,50');
     await settle(el);
     at(el, 'save-option')!.click();
@@ -551,6 +556,46 @@ describe('the UI rules already paid for in other modules', () => {
     await settle(el);
     expect(namesOf(fillControls(el).filter((c) => c.getAttribute('mode') !== 'md')),
       'the `goods` branch of the menu form ships a control the shell will not paint').toEqual([]);
+  });
+
+  // 🔴 A MISSING KEY IS INVISIBLE. `t()` answers the key itself when the catalogue has no entry,
+  // so the test above ("nothing is hardcoded") stays green while the screen paints
+  // `ui.editingChoice` at the user. And the SPANISH half is the one that goes missing, because
+  // English is where the string is born (ADR-0055/0199): both files are checked, not one.
+  it('every key the screen asks for exists in BOTH catalogues, `en` and its `es`', async () => {
+    const el = await mount();
+    await openMenu(el);
+
+    // Walk the paths whose sentences only appear once something is being edited or refused —
+    // they are exactly the ones a new feature forgets to translate.
+    (el.shadowRoot.querySelector('[data-test="edit-choice"]') as HTMLElement).click();
+    await settle(el);
+    (el.shadowRoot.querySelector('[data-test="cancel-choice"]') as HTMLElement).click();
+    await settle(el);
+    (el.shadowRoot.querySelector('[data-test="option-picker"]') as HTMLElement)
+      .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p1' } }));
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+
+    el.shadowRoot.querySelector('[data-test="back-to-menus"]')!.dispatchEvent(new MouseEvent('click'));
+    await settle(el);
+    type(el, 'supply-kind', 'goods');
+    await settle(el);
+
+    const lookup = (catalog: Record<string, unknown>, key: string): unknown => {
+      let cur: unknown = catalog;
+      for (const part of key.split('.')) {
+        cur = cur && typeof cur === 'object' ? (cur as Record<string, unknown>)[part] : undefined;
+      }
+      return cur;
+    };
+    const asked = [...new Set(translated)];
+    expect(asked.length, 'the screen asks for no key at all: the bench is broken').toBeGreaterThan(20);
+    expect(asked.filter((k) => typeof lookup(enLocale as Record<string, unknown>, k) !== 'string'),
+      'these keys are painted as their own name in English').toEqual([]);
+    expect(asked.filter((k) => typeof lookup(esLocale as Record<string, unknown>, k) !== 'string'),
+      'these keys have no Spanish: the hub is used in Spanish').toEqual([]);
   });
 
   it('no visible string is hardcoded: they all go through the module catalogue', async () => {
@@ -882,7 +927,7 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     await openMenu(el);
     inRow(el, 'o1', 'edit-choice')!.click();
     await settle(el);
-    (globalThis as Record<string, any>).erplora.command = async () => { throw new Error('boom'); };
+    (globalThis as Record<string, any>).erplora.command = async () => { throw new Error(''); };
     type(el, 'option-delta', '1,00');
     await settle(el);
     at(el, 'save-option')!.click();
@@ -890,6 +935,8 @@ describe('a choice is edited in place, keeping the position it holds in the cour
 
     expect(el.shadowRoot.querySelector('ok-inline-feedback[tone="danger"]'),
       'the edit failed in silence and the screen looks saved').toBeTruthy();
-    expect(translated, 'the failure is not translated').toContain('ui.errSaveOption');
+    expect(translated, 'a rejection with no sentence of its own is shown raw').toContain('ui.errSaveOption');
+    expect(options.find((o) => o.option_id === 'o1')!.price_delta,
+      'the screen reported a failure but wrote anyway').toBe(0);
   });
 });
