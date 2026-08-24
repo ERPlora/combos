@@ -83,6 +83,8 @@ let translated: string[] = [];
 let notInstalled: Set<string>;
 /** Queries that must fail, for the error state. */
 let broken: Map<string, string>;
+/** Makes `combos.options.list` answer OUT of order, to prove the builder does not trust it. */
+let choicesArriveUnordered: boolean;
 let groups: typeof STARTER[];
 let options: typeof STARTER_OPTION[];
 let combos: typeof SET_MENU[];
@@ -93,6 +95,7 @@ beforeEach(() => {
   translated = [];
   notInstalled = new Set();
   broken = new Map();
+  choicesArriveUnordered = false;
   groups = [STARTER, DESSERT];
   options = [STARTER_OPTION];
   combos = [SET_MENU, SHOP_PACK];
@@ -102,7 +105,15 @@ beforeEach(() => {
     const boom = broken.get(name);
     if (boom) throw new Error(boom);
     if (name === 'combos.groups.list') return groups.filter((g) => g.combo_id === params.combo_id);
-    if (name === 'combos.options.list') return options.filter((o) => o.group_id === params.group_id);
+    if (name === 'combos.options.list') {
+      // `ORDER BY sort_order, source_ref, id`, verbatim from queries/options_list.sql.
+      const rows = options
+        .filter((o) => o.group_id === params.group_id)
+        .sort((a, b) => a.sort_order - b.sort_order
+          || a.source_ref.localeCompare(b.source_ref)
+          || a.option_id.localeCompare(b.option_id));
+      return choicesArriveUnordered ? rows.reverse() : rows;
+    }
     if (name === 'inventory.products.list') return PRODUCTS;
     if (name === 'services.services.list') return SERVICES;
     if (name === 'taxes.categories.list') return TAX_CATEGORIES;
@@ -728,6 +739,18 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     persistChoices();
   });
 
+  // The mirror of the course test above. The order of the choices is the order the till OFFERS
+  // them in, so the builder sorts what it is handed instead of trusting the caller — which is what
+  // makes the optimistic swap of the arrows safe: it reorders an array, not a query.
+  it('paints the choices in their declared order even if they arrive unordered', async () => {
+    choicesArriveUnordered = true;
+    const el = await mount();
+    await openMenu(el);
+    expect(choiceOrder(el),
+      'the builder trusts the arrival order: the till would offer the choices in another one')
+      .toEqual(['o1', 'o2', 'o3']);
+  });
+
   it('every choice offers an edit control, not only a withdraw one', async () => {
     const el = await mount();
     await openMenu(el);
@@ -737,12 +760,16 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   });
 
   // 🔴 THE TEST THE ISSUE IS ABOUT.
+  //
+  // It corrects the LAST choice on purpose. The first one sits at `sort_order` 0 already, so a
+  // payload that drops the field, or hardcodes a 0, would leave it exactly where it was and this
+  // test would pass over the very bug it exists to catch.
   it('correcting a supplement leaves the course in the SAME order', async () => {
     const el = await mount();
     await openMenu(el);
     const before = choiceOrder(el);
 
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o3', 'edit-choice')!.click();
     await settle(el);
     type(el, 'option-delta', '0,50');
     await settle(el);
@@ -750,8 +777,8 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     await settle(el);
 
     expect(choiceOrder(el), 'correcting a supplement REORDERED the menu').toEqual(before);
-    expect(options.find((o) => o.option_id === 'o1')!.price_delta, 'the supplement was not corrected').toBe(50);
-    expect(choiceRow(el, 'o1').getAttribute('data-editing'),
+    expect(options.find((o) => o.option_id === 'o3')!.price_delta, 'the supplement was not corrected').toBe(50);
+    expect(choiceRow(el, 'o3').getAttribute('data-editing'),
       'the form stayed on that choice: the next Add would overwrite it instead of adding').toBe('false');
     expect(commands.map((c) => c.name).filter((n) => n.startsWith('combos.options.')),
       'the choice was withdrawn and put back instead of edited').toEqual(['combos.options.update']);
