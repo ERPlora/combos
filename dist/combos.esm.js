@@ -9,7 +9,7 @@ var __decorateClass = (decorators, target, key, kind) => {
   return result;
 };
 
-// ../../../module-toolkit/node_modules/@lit-labs/ssr-dom-shim/lib/element-internals.js
+// ../module-toolkit/node_modules/@lit-labs/ssr-dom-shim/lib/element-internals.js
 var ElementInternalsShim = class ElementInternals {
   get shadowRoot() {
     return this.__host.__shadowRoot;
@@ -88,7 +88,7 @@ var ElementInternalsShim = class ElementInternals {
   }
 };
 
-// ../../../module-toolkit/node_modules/@lit-labs/ssr-dom-shim/lib/events.js
+// ../module-toolkit/node_modules/@lit-labs/ssr-dom-shim/lib/events.js
 var __classPrivateFieldSet = function(receiver, state, value, kind, f3) {
   if (kind === "m") throw new TypeError("Private method is not writable");
   if (kind === "a" && !f3) throw new TypeError("Private accessor was defined without a setter");
@@ -246,7 +246,7 @@ Object.defineProperties(CustomEventShim.prototype, {
 var EventShimWithRealType = EventShim;
 var CustomEventShimWithRealType = CustomEventShim;
 
-// ../../../module-toolkit/node_modules/@lit-labs/ssr-dom-shim/lib/css.js
+// ../module-toolkit/node_modules/@lit-labs/ssr-dom-shim/lib/css.js
 var _a2;
 var CSSRuleShim = (_a2 = class CSSRule {
   constructor() {
@@ -277,7 +277,7 @@ var CSSRuleShim = (_a2 = class CSSRule {
   }
 }, _a2.STYLE_RULE = 1, _a2.CHARSET_RULE = 2, _a2.IMPORT_RULE = 3, _a2.MEDIA_RULE = 4, _a2.FONT_FACE_RULE = 5, _a2.PAGE_RULE = 6, _a2.NAMESPACE_RULE = 10, _a2.KEYFRAMES_RULE = 7, _a2.KEYFRAME_RULE = 8, _a2.SUPPORTS_RULE = 12, _a2.COUNTER_STYLE_RULE = 11, _a2.FONT_FEATURE_VALUES_RULE = 14, _a2.MARGIN_RULE = 9, _a2);
 
-// ../../../module-toolkit/node_modules/@lit-labs/ssr-dom-shim/index.js
+// ../module-toolkit/node_modules/@lit-labs/ssr-dom-shim/index.js
 globalThis.Event ??= EventShimWithRealType;
 globalThis.CustomEvent ??= CustomEventShimWithRealType;
 var constructionToken = Symbol();
@@ -674,7 +674,7 @@ var CustomElementRegistryShimWithRealType = CustomElementRegistry;
 var customElements2 = new CustomElementRegistryShimWithRealType();
 var windowShim = new WindowShim(constructionToken);
 
-// ../../../module-toolkit/node_modules/@lit/reactive-element/node/css-tag.js
+// ../module-toolkit/node_modules/@lit/reactive-element/node/css-tag.js
 var t = globalThis;
 var e = t.ShadowRoot && (void 0 === t.ShadyCSS || t.ShadyCSS.nativeShadow) && "adoptedStyleSheets" in Document.prototype && "replace" in CSSStyleSheet.prototype;
 var s = Symbol();
@@ -719,7 +719,7 @@ var c = e || void 0 === t.CSSStyleSheet ? (t6) => t6 : (t6) => t6 instanceof CSS
   return r(e5);
 })(t6) : t6;
 
-// ../../../module-toolkit/node_modules/@lit/reactive-element/node/reactive-element.js
+// ../module-toolkit/node_modules/@lit/reactive-element/node/reactive-element.js
 var { is: h, defineProperty: r2, getOwnPropertyDescriptor: o2, getOwnPropertyNames: n2, getOwnPropertySymbols: a, getPrototypeOf: c2 } = Object;
 var l = globalThis;
 l.customElements ??= customElements2;
@@ -942,7 +942,7 @@ var g = class extends (globalThis.HTMLElement ?? HTMLElementShimWithRealType) {
 };
 g.elementStyles = [], g.shadowRootOptions = { mode: "open" }, g[f("elementProperties")] = /* @__PURE__ */ new Map(), g[f("finalized")] = /* @__PURE__ */ new Map(), u?.({ ReactiveElement: g }), (l.reactiveElementVersions ??= []).push("2.1.2");
 
-// ../../node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/lit-html.js
+// node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/lit-html.js
 var t2 = globalThis;
 var i2 = (t6) => t6;
 var s2 = t2.trustedTypes;
@@ -1197,7 +1197,7 @@ var D = (t6, i7, s5) => {
   return h4._$AI(t6), h4;
 };
 
-// ../../node_modules/.pnpm/lit-element@4.2.2/node_modules/lit-element/lit-element.js
+// node_modules/.pnpm/lit-element@4.2.2/node_modules/lit-element/lit-element.js
 var s3 = globalThis;
 var i3 = class extends g {
   constructor() {
@@ -1226,7 +1226,7 @@ var o4 = s3.litElementPolyfillSupport;
 o4?.({ LitElement: i3 });
 (s3.litElementVersions ??= []).push("4.2.2");
 
-// ../../../module-toolkit/node_modules/@lit/reactive-element/node/decorators/property.js
+// ../module-toolkit/node_modules/@lit/reactive-element/node/decorators/property.js
 var o5 = { attribute: true, type: String, converter: b, reflect: false, hasChanged: m };
 var r4 = (t6 = o5, e5, r6) => {
   const { kind: n6, metadata: i7 } = r6;
@@ -1256,19 +1256,19 @@ function n4(t6) {
   })(t6, e5, o7);
 }
 
-// ../../../module-toolkit/node_modules/@lit/reactive-element/node/decorators/state.js
+// ../module-toolkit/node_modules/@lit/reactive-element/node/decorators/state.js
 function r5(r6) {
   return n4({ ...r6, state: true, attribute: false });
 }
 
-// ../../../outfitkit/dist/define.js
+// ../outfitkit/dist/define.js
 function define(tag, ctor) {
   if (typeof customElements !== "undefined" && !customElements.get(tag)) {
     customElements.define(tag, ctor);
   }
 }
 
-// ../../node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/directive.js
+// node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/directive.js
 var t3 = { ATTRIBUTE: 1, CHILD: 2, PROPERTY: 3, BOOLEAN_ATTRIBUTE: 4, EVENT: 5, ELEMENT: 6 };
 var e4 = (t6) => (...e5) => ({ _$litDirective$: t6, values: e5 });
 var i4 = class {
@@ -1288,7 +1288,7 @@ var i4 = class {
   }
 };
 
-// ../../node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/directive-helpers.js
+// node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/directive-helpers.js
 var { I: t4 } = j;
 var i5 = (o7) => o7;
 var s4 = () => document.createComment("");
@@ -1321,7 +1321,7 @@ var h3 = (o7) => {
   o7._$AR(), o7._$AA.remove();
 };
 
-// ../../node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/directives/repeat.js
+// node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/directives/repeat.js
 var u4 = (e5, s5, t6) => {
   const r6 = /* @__PURE__ */ new Map();
   for (let l3 = s5; l3 <= t6; l3++) r6.set(e5[l3], l3);
@@ -1374,7 +1374,7 @@ var c4 = e4(class extends i4 {
   }
 });
 
-// ../../node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/directives/style-map.js
+// node_modules/.pnpm/lit-html@3.3.3/node_modules/lit-html/directives/style-map.js
 var n5 = "important";
 var i6 = " !" + n5;
 var o6 = e4(class extends i4 {
@@ -1403,7 +1403,7 @@ var o6 = e4(class extends i4 {
   }
 });
 
-// ../../../outfitkit/dist/shared/icons.js
+// ../outfitkit/dist/shared/icons.js
 var rawAdd = '<svg viewBox="0 0 512 512" width="1.2em" height="1.2em" ><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M256 112v288m144-144H112"/></svg>';
 var rawAlertCircle = '<svg viewBox="0 0 512 512" width="1.2em" height="1.2em" ><path fill="currentColor" d="M256 48C141.31 48 48 141.31 48 256s93.31 208 208 208s208-93.31 208-208S370.69 48 256 48m0 319.91a20 20 0 1 1 20-20a20 20 0 0 1-20 20m21.72-201.15l-5.74 122a16 16 0 0 1-32 0l-5.74-121.94v-.05a21.74 21.74 0 1 1 43.44 0Z"/></svg>';
 var rawAlertCircleOutline = '<svg viewBox="0 0 512 512" width="1.2em" height="1.2em" ><path fill="none" stroke="currentColor" stroke-miterlimit="10" stroke-width="32" d="M448 256c0-106-86-192-192-192S64 150 64 256s86 192 192 192s192-86 192-192Z"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M250.26 166.05L256 288l5.73-121.95a5.74 5.74 0 0 0-5.79-6h0a5.74 5.74 0 0 0-5.68 6"/><path fill="currentColor" d="M256 367.91a20 20 0 1 1 20-20a20 20 0 0 1-20 20"/></svg>';
@@ -1551,7 +1551,7 @@ function okIcon(value) {
   return BY_NAME[value] ?? value;
 }
 
-// ../../../outfitkit/dist/ok-data-table.js
+// ../outfitkit/dist/ok-data-table.js
 var CSV_BOM = "\uFEFF";
 var WINDOWS_1252_C1 = [
   8364,
@@ -3093,7 +3093,7 @@ __decorateClass2([
 var OkDataTable = _OkDataTable;
 define("ok-data-table", OkDataTable);
 
-// ../../../outfitkit/dist/ok-inline-feedback.js
+// ../outfitkit/dist/ok-inline-feedback.js
 var __defProp3 = Object.defineProperty;
 var __decorateClass3 = (decorators, target, key, kind) => {
   var result = void 0;
@@ -3310,7 +3310,7 @@ __decorateClass3([
 ], OkInlineFeedback.prototype, "hasActions");
 define("ok-inline-feedback", OkInlineFeedback);
 
-// ../../../outfitkit/dist/ok-combo.js
+// ../outfitkit/dist/ok-combo.js
 var __defProp4 = Object.defineProperty;
 var __decorateClass4 = (decorators, target, key, kind) => {
   var result = void 0;
@@ -3600,7 +3600,7 @@ __decorateClass4([
 ], OkCombo.prototype, "activeIndex");
 define("ok-combo", OkCombo);
 
-// ../../../hub/packages/module-sdk/src/index.ts
+// ../hub/packages/module-sdk/src/index.ts
 var DATA_TABLE_LABELS_ES = {
   search: "Buscar\u2026",
   empty: "Sin resultados",
@@ -3800,7 +3800,7 @@ function minorToMajor(amount, decimals2) {
   return (amount ?? 0) / 10 ** decimals2;
 }
 
-// locales/es.json
+// modules/combos/locales/es.json
 var es_default = {
   name: "Men\xFAs y combos",
   description: "Men\xFAs, packs y combos que se venden a precio cerrado, con grupos de elecci\xF3n ordenados.",
@@ -3892,6 +3892,8 @@ var es_default = {
     errCeilingBelowFloor: "El m\xE1ximo ({max}) queda por debajo del m\xEDnimo ({min}): nadie podr\xEDa satisfacer nunca este curso.",
     errNoArticle: "Elige antes un art\xEDculo del cat\xE1logo.",
     errDuplicateArticle: "Este curso ya ofrece ese art\xEDculo. Para que se pueda elegir dos veces, activa \xABse puede elegir la misma opci\xF3n m\xE1s de una vez\xBB.",
+    errAmbiguousAmount: "Este importe se puede leer de dos maneras: \xAB{typed}\xBB tanto puede ser {grouped} como {decimal}. Escribe los decimales para que no haya duda.",
+    errNotAnAmount: "Esto no es un importe. Escribe una cifra, por ejemplo 12,50.",
     errSaveMenu: "No se ha podido guardar el men\xFA.",
     errSaveCourse: "No se ha podido guardar el curso.",
     errSaveOption: "No se ha podido guardar la elecci\xF3n.",
@@ -3907,7 +3909,7 @@ var es_default = {
   }
 };
 
-// locales/en.json
+// modules/combos/locales/en.json
 var en_default = {
   name: "Combos",
   description: "Menus, packs and combos sold at a closed price, with ordered choice groups.",
@@ -3999,6 +4001,8 @@ var en_default = {
     errCeilingBelowFloor: "The maximum ({max}) is below the minimum ({min}): nobody could ever satisfy this course.",
     errNoArticle: "Pick a catalogue article first.",
     errDuplicateArticle: "This course already offers that article. To let it be picked twice, switch on \xABthe same option may be picked more than once\xBB.",
+    errAmbiguousAmount: "This amount can be read in two ways: \xAB{typed}\xBB could be {grouped} or {decimal}. Write the decimals so there is no doubt.",
+    errNotAnAmount: "This is not an amount. Type a figure, for example 12.50.",
     errSaveMenu: "The menu could not be saved.",
     errSaveCourse: "The course could not be saved.",
     errSaveOption: "The choice could not be saved.",
@@ -4014,7 +4018,7 @@ var en_default = {
   }
 };
 
-// ui/components/erp-combos-menus/erp-combos-menus.ts
+// modules/combos/ui/components/erp-combos-menus/erp-combos-menus.ts
 var CATALOG = { es: es_default, en: en_default };
 function erplora() {
   const c5 = globalThis.erplora;
@@ -4024,12 +4028,61 @@ function erplora() {
 var can = (permission) => erplora().hasPermission?.(permission) ?? true;
 var t5 = (key, params) => erplora().t(CATALOG, key, params);
 var decimals = () => erplora().currencyDecimals ?? 2;
-function amountToMinor(typed) {
-  const text = String(typed ?? "").trim().replace(",", ".");
-  if (!text) return 0;
-  return majorToMinor(text, decimals());
+function parseAmount(typed, d3) {
+  const raw = String(typed ?? "").trim();
+  if (!raw) return { ok: true, minor: 0 };
+  const negative = raw.startsWith("-");
+  const text = raw.replace(/[^\d.,]/g, "");
+  if (!text) return { ok: false, key: "ui.errNotAnAmount" };
+  const dots = (text.match(/\./g) ?? []).length;
+  const commas = (text.match(/,/g) ?? []).length;
+  let normalised;
+  if (dots && commas) {
+    const dec = text.lastIndexOf(".") > text.lastIndexOf(",") ? "." : ",";
+    const grp = dec === "." ? "," : ".";
+    normalised = text.split(grp).join("").replace(dec, ".");
+  } else if (dots + commas === 0) {
+    normalised = text;
+  } else {
+    const sep = dots ? "." : ",";
+    const tail = text.slice(text.lastIndexOf(sep) + 1);
+    if (dots + commas > 1) normalised = text.split(sep).join("");
+    else if (tail.length === 3 && d3 !== 3) return { ok: false, key: "ui.errAmbiguousAmount" };
+    else normalised = text.replace(sep, ".");
+  }
+  const n6 = Number(normalised);
+  if (!Number.isFinite(n6)) return { ok: false, key: "ui.errNotAnAmount" };
+  return { ok: true, minor: majorToMinor(negative ? -n6 : n6, d3) };
 }
-var minorToInput = (minor) => String(minorToMajor(minor, decimals()));
+function amountToMinor(typed) {
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? parsed.minor : 0;
+}
+function amountBlockedKey(typed) {
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? "" : parsed.key;
+}
+function amountReadings(typed) {
+  const raw = String(typed ?? "").trim();
+  const d3 = decimals();
+  const digitsOnly = raw.replace(/[^\d]/g, "");
+  const grouped = minorToInput(majorToMinor(digitsOnly || "0", d3));
+  const decimal = minorToInput(majorToMinor(raw.replace(/[^\d.,]/g, "").replace(",", "."), d3));
+  return { typed: raw, grouped, decimal };
+}
+var minorToInput = (minor) => {
+  const d3 = decimals();
+  return new Intl.NumberFormat(erplora().locale || "en", {
+    minimumFractionDigits: d3,
+    maximumFractionDigits: d3,
+    useGrouping: false
+  }).format(minorToMajor(minor, d3));
+};
+function normaliseOnBlur(typed) {
+  if (!typed.trim()) return typed;
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? minorToInput(parsed.minor) : typed;
+}
 var CATALOGUES = [
   { source: "product", query: "inventory.products.list", moduleKey: "ui.moduleInventory" },
   { source: "service", query: "services.services.list", moduleKey: "ui.moduleServices" }
@@ -4104,10 +4157,20 @@ var ErpCombosMenus = class extends i3 {
     .badge { display:inline-block; border-radius:999px; padding:.1rem .55rem; font-size:.78rem; background: color-mix(in srgb, var(--ion-text-color, #1c1b18) 8%, transparent); }
 
     .choices { list-style:none; margin:.6rem 0 0; padding:0; display:flex; flex-direction:column; gap:.3rem; }
-    .choices li { display:flex; gap:.5rem; align-items:center; font-size:.92rem; }
+    /* Wraps on purpose. Four 44 px targets are 64 px wider per row than four 28 px ones, and
+       measured at 390x844 a long article name plus a supplement pushed Retirar PAST the right
+       edge of its own row -- cut off, with the page not even scrolling sideways to reveal it.
+       Growing a touch target until it leaves the card is not a fix, so on a narrow screen the
+       actions drop to their own line at full size. */
+    .choices li { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; font-size:.92rem; }
+    .choices .name { flex:1 1 8rem; min-width:0; overflow-wrap:anywhere; }
     .choices .delta { margin-left:auto; font-variant-numeric: tabular-nums; }
-    /* Pushed to the end of the row, and to the same place whether or not there is a supplement. */
-    .choices .row-actions { margin-left:auto; display:flex; align-items:center; gap:.1rem; }
+    /* Pushed to the end of the row, and to the same place whether or not there is a supplement.
+       The flex:0 0 auto is load-bearing: a 44 px target that is allowed to shrink is not a 44 px
+       target any more, it just fails more quietly.
+       (No backticks in this comment -- it lives inside the css tagged template and one would
+       CLOSE it, which is exactly how this edit broke the whole component once.) */
+    .choices .row-actions { flex:0 0 auto; margin-left:auto; display:flex; align-items:center; gap:.1rem; }
     .choices .delta + .row-actions { margin-left:.5rem; }
 
     .form { display:flex; flex-direction:column; gap:.7rem; }
@@ -4150,6 +4213,32 @@ var ErpCombosMenus = class extends i3 {
       --background: var(--ion-color-danger, #c5000f);
       --color: var(--ion-color-danger-contrast, #fff);
     }
+    /*
+     * ONE TOUCH TARGET SIZE FOR THE WHOLE BUILDER, NOT ONE PER ROW (combos#4).
+     * Measured on the built bundle in Chromium with Ionic in ios (the mode the shell pins,
+     * ADR-0143), at 390x844, 820x1180 and 1440x900: an icon-only ion-button size=small came out
+     * 28,1 x 28,1 px in all three, with 5,6 px between neighbours -- centres 33,7 px apart, four
+     * of them in a row, and the last one is Retirar. A mis-tap there withdraws the choice next to
+     * the one that was aimed at.
+     *
+     * 44 is the floor Apple HIG and WCAG 2.1 SC 2.5.5 (AAA) both put it at, and it is what the
+     * rest of ERPlora already settled on with tests behind it: ok-data-table pins 44 for the row
+     * actions of the list half of THIS screen, and invoice, cash_register, kitchen, customers,
+     * appointments and reservations pin the same 44.
+     *
+     * Pinned for every ion-button of the component, not only the icon-only ones: the arrows of a
+     * course share a card head with its Editar and Retirar, so sizing one and not the other is
+     * how a card ends up with two heights -- worse than the small size it replaced.
+     *
+     * --min-height as well as min-height on purpose: min-height on the host reserves the box, but
+     * what the finger actually lands on is the .button-native Ionic paints inside, and that one
+     * follows the custom property.
+     */
+    ion-button { min-height:44px; --min-height:44px; }
+    /* No label to widen them, so these are the ones that collapse. Square, and padding-free so
+       the icon keeps the middle. */
+    .icon-btn { min-width:44px; min-height:44px; --min-height:44px; --padding-start:0; --padding-end:0; }
+
     .reason { color: var(--ion-color-danger, #d9480f); font-size:.85rem; margin:.2rem 0 0; }
     .muted { opacity:.75; font-size:.9rem; }
   `;
@@ -4317,13 +4406,15 @@ var ErpCombosMenus = class extends i3 {
   get comboBlockedKey() {
     if (!this.fName.trim()) return "ui.errNoName";
     if (this.fSupplyKind === "service" && !this.fTaxCategory.trim()) return "ui.errNoTaxCategory";
+    const price = amountBlockedKey(this.fPrice);
+    if (price) return price;
     return "";
   }
   async saveCombo() {
     if (!can("combos.manage_combo")) return;
     const blocked = this.comboBlockedKey;
     if (blocked) {
-      this.comboReason = t5(blocked);
+      this.comboReason = t5(blocked, amountReadings(this.fPrice));
       return;
     }
     this.saving = true;
@@ -4548,6 +4639,8 @@ var ErpCombosMenus = class extends i3 {
   optionBlockedKey(groupId) {
     const draft = this.draft(groupId);
     if (!draft.ref) return "ui.errNoArticle";
+    const delta = amountBlockedKey(draft.delta);
+    if (delta) return delta;
     const editing = this.editingIn(groupId);
     const clash = (this.choices[groupId] ?? []).some(
       (o7) => `${o7.source}:${o7.source_ref}` === draft.ref && o7.option_id !== editing?.option_id
@@ -4559,7 +4652,7 @@ var ErpCombosMenus = class extends i3 {
     const blocked = this.optionBlockedKey(groupId);
     if (blocked) {
       this.optionScope = groupId;
-      this.optionReason = t5(blocked);
+      this.optionReason = t5(blocked, amountReadings(this.draft(groupId).delta));
       return;
     }
     const draft = this.draft(groupId);
@@ -4698,7 +4791,8 @@ var ErpCombosMenus = class extends i3 {
 
       <ion-input mode="md" fill="outline" data-test="combo-price" type="text" inputmode="decimal"
         label=${t5("ui.fieldPrice")} label-placement="floating" .value=${this.fPrice}
-        @ionInput=${(e5) => this.fPrice = String(e5.target.value ?? "")}></ion-input>
+        @ionInput=${(e5) => this.fPrice = String(e5.target.value ?? "")}
+        @ionBlur=${() => this.fPrice = normaliseOnBlur(this.fPrice)}></ion-input>
       <p class="help">${t5("ui.fieldPriceHelp")}</p>
 
       <!-- supply_kind is asked by what it MEANS: whoever fills it is a restaurateur, not an adviser. -->
@@ -4757,24 +4851,24 @@ var ErpCombosMenus = class extends i3 {
       ${rows.length === 0 ? b2`<p class="muted" data-test="choices-empty">${t5("ui.optionsEmpty")}</p>` : b2`<ul class="choices">
             ${rows.map((o7, i7) => b2`<li data-test="choice" data-option-id=${o7.option_id}
               data-editing=${String(this.editingChoice?.option_id === o7.option_id)}>
-              <span>${this.articleLabel(o7)}</span>
+              <span class="name">${this.articleLabel(o7)}</span>
               ${o7.price_delta ? b2`<span class="delta">${erplora().formatMoney(o7.price_delta)}</span>` : A}
               ${manage ? b2`<span class="row-actions">
-                    <ion-button size="small" data-test="choice-up" aria-label=${t5("ui.moveUp")}
+                    <ion-button size="small" class="icon-btn" data-test="choice-up" aria-label=${t5("ui.moveUp")}
                       data-blocked=${String(i7 === 0)} aria-disabled=${String(i7 === 0)}
                       @click=${() => this.moveChoice(o7, -1)}>
                       <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="choice-down" aria-label=${t5("ui.moveDown")}
+                    <ion-button size="small" class="icon-btn" data-test="choice-down" aria-label=${t5("ui.moveDown")}
                       data-blocked=${String(i7 === rows.length - 1)} aria-disabled=${String(i7 === rows.length - 1)}
                       @click=${() => this.moveChoice(o7, 1)}>
                       <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="edit-choice" aria-label=${t5("ui.optionEdit")}
+                    <ion-button size="small" class="icon-btn" data-test="edit-choice" aria-label=${t5("ui.optionEdit")}
                       @click=${() => this.startEditChoice(o7)}>
                       <ion-icon name="create-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="delete-choice" aria-label=${t5("ui.optionDelete")}
+                    <ion-button size="small" class="icon-btn" data-test="delete-choice" aria-label=${t5("ui.optionDelete")}
                       @click=${() => this.deleteChoice(o7)}>
                       <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
                     </ion-button>
@@ -4798,7 +4892,8 @@ var ErpCombosMenus = class extends i3 {
             ></ok-combo>
             <ion-input mode="md" fill="outline" data-test="option-delta" type="text" inputmode="decimal"
               label=${t5("ui.optionDelta")} label-placement="floating" .value=${draft.delta}
-              @ionInput=${(e5) => this.patchDraft(course.group_id, { delta: String(e5.target.value ?? "") })}></ion-input>
+              @ionInput=${(e5) => this.patchDraft(course.group_id, { delta: String(e5.target.value ?? "") })}
+              @ionBlur=${() => this.patchDraft(course.group_id, { delta: normaliseOnBlur(this.draft(course.group_id).delta) })}></ion-input>
             ${this.blockingButton({
       test: "save-option",
       blocked: Boolean(this.optionBlockedKey(course.group_id)),
@@ -4823,12 +4918,12 @@ var ErpCombosMenus = class extends i3 {
         <span class="title">${course.name}</span>
         <span class="badge" data-test="course-rule">${this.courseRule(course)}</span>
         ${manage ? b2`
-            <ion-button size="small" data-test="course-up" aria-label=${t5("ui.moveUp")}
+            <ion-button size="small" class="icon-btn" data-test="course-up" aria-label=${t5("ui.moveUp")}
               data-blocked=${String(index === 0)} aria-disabled=${String(index === 0)}
               @click=${() => this.moveCourse(course, -1)}>
               <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
             </ion-button>
-            <ion-button size="small" data-test="course-down" aria-label=${t5("ui.moveDown")}
+            <ion-button size="small" class="icon-btn" data-test="course-down" aria-label=${t5("ui.moveDown")}
               data-blocked=${String(index === this.courses.length - 1)} aria-disabled=${String(index === this.courses.length - 1)}
               @click=${() => this.moveCourse(course, 1)}>
               <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>

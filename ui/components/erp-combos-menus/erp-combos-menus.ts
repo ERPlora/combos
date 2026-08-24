@@ -71,18 +71,124 @@ const t = (key: string, params?: Record<string, unknown>): string => erplora().t
 /** Decimals of the hub currency. NOT a hardcoded 2: in JPY they are 0 and `*100` overcharges 100x. */
 const decimals = (): number => erplora().currencyDecimals ?? 2;
 
+/** What a typed amount turned out to be — or the i18n key of why it could not be read. */
+type Amount = { ok: true; minor: number } | { ok: false; key: string };
+
 /**
- * A typed amount → minor units. `majorToMinor` runs `Number()`, which yields NaN on the comma a
- * Spanish keyboard produces, and NaN lands in an INTEGER column as a silent 0. The comma is
- * normalised here so "13,50" and "-1,50" mean what the person typed.
+ * A typed amount → minor units, in a till used in Spain (combos#3).
+ *
+ * The old version was `String(typed).replace(',', '.')`: it handled the comma a Spanish keyboard
+ * produces, and NOTHING else. `1.250,50` — verbatim what the row two centimetres above prints,
+ * and since hub#1090 money groups ALWAYS, so it is the normal case — became `1.250.50`, `Number`
+ * answered NaN, and NaN landed in an INTEGER column as a silent 0. The menu saved itself FREE
+ * with no error and nothing in the console.
+ *
+ * The rule, decided from the market (12+ references and their forums, written into combos#3):
+ *
+ *  * BOTH separators, always. Odoo's oldest complaint is accepting only the active language's
+ *    (`6.35` saved as 635); Business Central shipped an entire release feature to stop doing it
+ *    in Spain; Firefox resolved its own bug by falling back to the English reading.
+ *  * Two DIFFERENT separators → the LAST one is the decimal, the other is grouping. That is what
+ *    makes a pasted `1.250,50` and a pasted `1,250.50` both mean 1250,50.
+ *  * The same separator more than once → it can only be grouping (`1.250.000`).
+ *  * Anything that is not a digit or a separator is cleaned away: currency symbol, plain spaces,
+ *    and NBSP / NNBSP / thin space. The narrow no-break space is the one that broke Odoo in
+ *    French (odoo#106534), and `Intl` emits it, so it arrives on real pastes.
+ *
+ * 🔴 And ONE case is refused instead of guessed: a lone separator followed by exactly three
+ * digits, in a currency that does not have three decimals. `1.250` is 1250 to the Spaniard who
+ * typed it and 1,25 to a parser told "a lone separator is always decimal", and the two readings
+ * are 1000x apart. There is no safe guess, so the screen says so in words — the same contract as
+ * the CHECK constraints: what cannot be accepted is EXPLAINED, never silently reinterpreted.
  */
-function amountToMinor(typed: unknown): number {
-  const text = String(typed ?? '').trim().replace(',', '.');
-  if (!text) return 0;
-  return majorToMinor(text, decimals());
+function parseAmount(typed: unknown, d: number): Amount {
+  const raw = String(typed ?? '').trim();
+  if (!raw) return { ok: true, minor: 0 };
+  // The sign is read BEFORE cleaning, because cleaning is what removes it.
+  const negative = raw.startsWith('-');
+  const text = raw.replace(/[^\d.,]/g, '');
+  if (!text) return { ok: false, key: 'ui.errNotAnAmount' };
+
+  const dots = (text.match(/\./g) ?? []).length;
+  const commas = (text.match(/,/g) ?? []).length;
+  let normalised: string;
+
+  if (dots && commas) {
+    const dec = text.lastIndexOf('.') > text.lastIndexOf(',') ? '.' : ',';
+    const grp = dec === '.' ? ',' : '.';
+    normalised = text.split(grp).join('').replace(dec, '.');
+  } else if (dots + commas === 0) {
+    normalised = text;
+  } else {
+    const sep = dots ? '.' : ',';
+    const tail = text.slice(text.lastIndexOf(sep) + 1);
+    if (dots + commas > 1) normalised = text.split(sep).join('');
+    else if (tail.length === 3 && d !== 3) return { ok: false, key: 'ui.errAmbiguousAmount' };
+    else normalised = text.replace(sep, '.');
+  }
+
+  const n = Number(normalised);
+  if (!Number.isFinite(n)) return { ok: false, key: 'ui.errNotAnAmount' };
+  return { ok: true, minor: majorToMinor(negative ? -n : n, d) };
 }
 
-const minorToInput = (minor: number): string => String(minorToMajor(minor, decimals()));
+/** The amount, or 0 — for the callers that have already checked it can be read. */
+function amountToMinor(typed: unknown): number {
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? parsed.minor : 0;
+}
+
+/** Why this typed amount cannot be used, as an i18n key — or '' when it can. */
+function amountBlockedKey(typed: unknown): string {
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? '' : parsed.key;
+}
+
+/**
+ * The words the refusal is built from: what was typed, and THE TWO READINGS OF IT.
+ *
+ * Not a canned example. The first version quoted a fixed «1250 or 1,25» whatever the amount was,
+ * so typing 2.500 was answered with a sentence about somebody else's number — which reads like a
+ * bug and teaches nothing. Both readings are formatted in the hub's locale, so the person can
+ * copy the one they meant straight back into the field.
+ */
+function amountReadings(typed: unknown): Record<string, unknown> {
+  const raw = String(typed ?? '').trim();
+  const d = decimals();
+  const digitsOnly = raw.replace(/[^\d]/g, '');
+  const grouped = minorToInput(majorToMinor(digitsOnly || '0', d));
+  const decimal = minorToInput(majorToMinor(raw.replace(/[^\d.,]/g, '').replace(',', '.'), d));
+  return { typed: raw, grouped, decimal };
+}
+
+/**
+ * MINOR units → what a human types into the field, in the HUB's locale and the CURRENCY's
+ * decimals: 1350 → «13,50» in es, «13.50» in en. Two rules, both load-bearing:
+ *
+ *  * the decimals come from the currency, so the field never shows a different scale than the
+ *    money it edits (in JPY there are none, and 1999 is 1999 yen);
+ *  * NO GROUPING. `useGrouping:false` is not a nicety: `1.250,50` inside an editable field is the
+ *    single cause of the x10 Business Central had to fix for Spain and of the field Odoo blanked
+ *    (odoo#19357), and a field whose own output does not survive being read back is broken by
+ *    design. Grouping belongs on the READ-ONLY surfaces, which is where hub#1090 put it.
+ */
+const minorToInput = (minor: number): string => {
+  const d = decimals();
+  return new Intl.NumberFormat(erplora().locale || 'en', {
+    minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false,
+  }).format(minorToMajor(minor, d));
+};
+
+/**
+ * What the field should show once the person leaves it. Unreadable input is left EXACTLY as typed:
+ * rewriting it would either throw away what they wrote or pick one of the two readings of an
+ * ambiguous amount, which is the guess this whole section exists to avoid.
+ */
+function normaliseOnBlur(typed: string): string {
+  if (!typed.trim()) return typed;
+  const parsed = parseAmount(typed, decimals());
+  return parsed.ok ? minorToInput(parsed.minor) : typed;
+}
 
 /** The two catalogues a combo component can come from, each with the module that owns it. */
 const CATALOGUES = [
@@ -126,10 +232,20 @@ export class ErpCombosMenus extends LitElement {
     .badge { display:inline-block; border-radius:999px; padding:.1rem .55rem; font-size:.78rem; background: color-mix(in srgb, var(--ion-text-color, #1c1b18) 8%, transparent); }
 
     .choices { list-style:none; margin:.6rem 0 0; padding:0; display:flex; flex-direction:column; gap:.3rem; }
-    .choices li { display:flex; gap:.5rem; align-items:center; font-size:.92rem; }
+    /* Wraps on purpose. Four 44 px targets are 64 px wider per row than four 28 px ones, and
+       measured at 390x844 a long article name plus a supplement pushed Retirar PAST the right
+       edge of its own row -- cut off, with the page not even scrolling sideways to reveal it.
+       Growing a touch target until it leaves the card is not a fix, so on a narrow screen the
+       actions drop to their own line at full size. */
+    .choices li { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; font-size:.92rem; }
+    .choices .name { flex:1 1 8rem; min-width:0; overflow-wrap:anywhere; }
     .choices .delta { margin-left:auto; font-variant-numeric: tabular-nums; }
-    /* Pushed to the end of the row, and to the same place whether or not there is a supplement. */
-    .choices .row-actions { margin-left:auto; display:flex; align-items:center; gap:.1rem; }
+    /* Pushed to the end of the row, and to the same place whether or not there is a supplement.
+       The flex:0 0 auto is load-bearing: a 44 px target that is allowed to shrink is not a 44 px
+       target any more, it just fails more quietly.
+       (No backticks in this comment -- it lives inside the css tagged template and one would
+       CLOSE it, which is exactly how this edit broke the whole component once.) */
+    .choices .row-actions { flex:0 0 auto; margin-left:auto; display:flex; align-items:center; gap:.1rem; }
     .choices .delta + .row-actions { margin-left:.5rem; }
 
     .form { display:flex; flex-direction:column; gap:.7rem; }
@@ -172,6 +288,32 @@ export class ErpCombosMenus extends LitElement {
       --background: var(--ion-color-danger, #c5000f);
       --color: var(--ion-color-danger-contrast, #fff);
     }
+    /*
+     * ONE TOUCH TARGET SIZE FOR THE WHOLE BUILDER, NOT ONE PER ROW (combos#4).
+     * Measured on the built bundle in Chromium with Ionic in ios (the mode the shell pins,
+     * ADR-0143), at 390x844, 820x1180 and 1440x900: an icon-only ion-button size=small came out
+     * 28,1 x 28,1 px in all three, with 5,6 px between neighbours -- centres 33,7 px apart, four
+     * of them in a row, and the last one is Retirar. A mis-tap there withdraws the choice next to
+     * the one that was aimed at.
+     *
+     * 44 is the floor Apple HIG and WCAG 2.1 SC 2.5.5 (AAA) both put it at, and it is what the
+     * rest of ERPlora already settled on with tests behind it: ok-data-table pins 44 for the row
+     * actions of the list half of THIS screen, and invoice, cash_register, kitchen, customers,
+     * appointments and reservations pin the same 44.
+     *
+     * Pinned for every ion-button of the component, not only the icon-only ones: the arrows of a
+     * course share a card head with its Editar and Retirar, so sizing one and not the other is
+     * how a card ends up with two heights -- worse than the small size it replaced.
+     *
+     * --min-height as well as min-height on purpose: min-height on the host reserves the box, but
+     * what the finger actually lands on is the .button-native Ionic paints inside, and that one
+     * follows the custom property.
+     */
+    ion-button { min-height:44px; --min-height:44px; }
+    /* No label to widen them, so these are the ones that collapse. Square, and padding-free so
+       the icon keeps the middle. */
+    .icon-btn { min-width:44px; min-height:44px; --min-height:44px; --padding-start:0; --padding-end:0; }
+
     .reason { color: var(--ion-color-danger, #d9480f); font-size:.85rem; margin:.2rem 0 0; }
     .muted { opacity:.75; font-size:.9rem; }
   `;
@@ -412,6 +554,10 @@ export class ErpCombosMenus extends LitElement {
   private get comboBlockedKey(): string {
     if (!this.fName.trim()) return 'ui.errNoName';
     if (this.fSupplyKind === 'service' && !this.fTaxCategory.trim()) return 'ui.errNoTaxCategory';
+    // An amount that cannot be read is REFUSED, never coerced to 0 (combos#3): a menu that saves
+    // itself free because a paste was misread is the most expensive kind of silence there is.
+    const price = amountBlockedKey(this.fPrice);
+    if (price) return price;
     return '';
   }
 
@@ -420,7 +566,9 @@ export class ErpCombosMenus extends LitElement {
     const blocked = this.comboBlockedKey;
     if (blocked) {
       // The tap ANSWERS. This is the whole reason the button is not natively disabled.
-      this.comboReason = t(blocked);
+      // `typed` is what they actually wrote: an unreadable amount is quoted back, because
+      // "this is not an amount" without saying WHICH one is a dead end on a busy counter.
+      this.comboReason = t(blocked, amountReadings(this.fPrice));
       return;
     }
     this.saving = true;
@@ -651,6 +799,8 @@ export class ErpCombosMenus extends LitElement {
   private optionBlockedKey(groupId: string): string {
     const draft = this.draft(groupId);
     if (!draft.ref) return 'ui.errNoArticle';
+    const delta = amountBlockedKey(draft.delta);
+    if (delta) return delta;
     const editing = this.editingIn(groupId);
     const clash = (this.choices[groupId] ?? []).some(
       (o) => `${o.source}:${o.source_ref}` === draft.ref && o.option_id !== editing?.option_id,
@@ -664,7 +814,7 @@ export class ErpCombosMenus extends LitElement {
     if (blocked) {
       // The tap ANSWERS, in the course it was tapped in.
       this.optionScope = groupId;
-      this.optionReason = t(blocked);
+      this.optionReason = t(blocked, amountReadings(this.draft(groupId).delta));
       return;
     }
     const draft = this.draft(groupId);
@@ -815,7 +965,8 @@ export class ErpCombosMenus extends LitElement {
 
       <ion-input mode="md" fill="outline" data-test="combo-price" type="text" inputmode="decimal"
         label=${t('ui.fieldPrice')} label-placement="floating" .value=${this.fPrice}
-        @ionInput=${(e: CustomEvent) => (this.fPrice = String((e.target as HTMLInputElement).value ?? ''))}></ion-input>
+        @ionInput=${(e: CustomEvent) => (this.fPrice = String((e.target as HTMLInputElement).value ?? ''))}
+        @ionBlur=${() => (this.fPrice = normaliseOnBlur(this.fPrice))}></ion-input>
       <p class="help">${t('ui.fieldPriceHelp')}</p>
 
       <!-- supply_kind is asked by what it MEANS: whoever fills it is a restaurateur, not an adviser. -->
@@ -879,25 +1030,25 @@ export class ErpCombosMenus extends LitElement {
         : html`<ul class="choices">
             ${rows.map((o, i) => html`<li data-test="choice" data-option-id=${o.option_id}
               data-editing=${String(this.editingChoice?.option_id === o.option_id)}>
-              <span>${this.articleLabel(o)}</span>
+              <span class="name">${this.articleLabel(o)}</span>
               ${o.price_delta ? html`<span class="delta">${erplora().formatMoney(o.price_delta)}</span>` : nothing}
               ${manage
                 ? html`<span class="row-actions">
-                    <ion-button size="small" data-test="choice-up" aria-label=${t('ui.moveUp')}
+                    <ion-button size="small" class="icon-btn" data-test="choice-up" aria-label=${t('ui.moveUp')}
                       data-blocked=${String(i === 0)} aria-disabled=${String(i === 0)}
                       @click=${() => this.moveChoice(o, -1)}>
                       <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="choice-down" aria-label=${t('ui.moveDown')}
+                    <ion-button size="small" class="icon-btn" data-test="choice-down" aria-label=${t('ui.moveDown')}
                       data-blocked=${String(i === rows.length - 1)} aria-disabled=${String(i === rows.length - 1)}
                       @click=${() => this.moveChoice(o, 1)}>
                       <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="edit-choice" aria-label=${t('ui.optionEdit')}
+                    <ion-button size="small" class="icon-btn" data-test="edit-choice" aria-label=${t('ui.optionEdit')}
                       @click=${() => this.startEditChoice(o)}>
                       <ion-icon name="create-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" data-test="delete-choice" aria-label=${t('ui.optionDelete')}
+                    <ion-button size="small" class="icon-btn" data-test="delete-choice" aria-label=${t('ui.optionDelete')}
                       @click=${() => this.deleteChoice(o)}>
                       <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
                     </ion-button>
@@ -925,7 +1076,8 @@ export class ErpCombosMenus extends LitElement {
             ></ok-combo>
             <ion-input mode="md" fill="outline" data-test="option-delta" type="text" inputmode="decimal"
               label=${t('ui.optionDelta')} label-placement="floating" .value=${draft.delta}
-              @ionInput=${(e: CustomEvent) => this.patchDraft(course.group_id, { delta: String((e.target as HTMLInputElement).value ?? '') })}></ion-input>
+              @ionInput=${(e: CustomEvent) => this.patchDraft(course.group_id, { delta: String((e.target as HTMLInputElement).value ?? '') })}
+              @ionBlur=${() => this.patchDraft(course.group_id, { delta: normaliseOnBlur(this.draft(course.group_id).delta) })}></ion-input>
             ${this.blockingButton({
               test: 'save-option',
               blocked: Boolean(this.optionBlockedKey(course.group_id)),
@@ -957,12 +1109,12 @@ export class ErpCombosMenus extends LitElement {
         <span class="badge" data-test="course-rule">${this.courseRule(course)}</span>
         ${manage
           ? html`
-            <ion-button size="small" data-test="course-up" aria-label=${t('ui.moveUp')}
+            <ion-button size="small" class="icon-btn" data-test="course-up" aria-label=${t('ui.moveUp')}
               data-blocked=${String(index === 0)} aria-disabled=${String(index === 0)}
               @click=${() => this.moveCourse(course, -1)}>
               <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
             </ion-button>
-            <ion-button size="small" data-test="course-down" aria-label=${t('ui.moveDown')}
+            <ion-button size="small" class="icon-btn" data-test="course-down" aria-label=${t('ui.moveDown')}
               data-blocked=${String(index === this.courses.length - 1)} aria-disabled=${String(index === this.courses.length - 1)}
               @click=${() => this.moveCourse(course, 1)}>
               <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>

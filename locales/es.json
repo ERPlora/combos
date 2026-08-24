@@ -89,6 +89,8 @@
     "errCeilingBelowFloor": "El máximo ({max}) queda por debajo del mínimo ({min}): nadie podría satisfacer nunca este curso.",
     "errNoArticle": "Elige antes un artículo del catálogo.",
     "errDuplicateArticle": "Este curso ya ofrece ese artículo. Para que se pueda elegir dos veces, activa «se puede elegir la misma opción más de una vez».",
+    "errAmbiguousAmount": "Este importe se puede leer de dos maneras: «{typed}» tanto puede ser {grouped} como {decimal}. Escribe los decimales para que no haya duda.",
+    "errNotAnAmount": "Esto no es un importe. Escribe una cifra, por ejemplo 12,50.",
     "errSaveMenu": "No se ha podido guardar el menú.",
     "errSaveCourse": "No se ha podido guardar el curso.",
     "errSaveOption": "No se ha podido guardar la elección.",

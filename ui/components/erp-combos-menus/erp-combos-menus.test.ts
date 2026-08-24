@@ -811,8 +811,12 @@ describe('a choice is edited in place, keeping the position it holds in the cour
 
     const picker = at(el, 'option-picker') as unknown as { value: string };
     expect(picker.value, 'the picker does not preselect the article being edited').toBe('product:p2');
+    // Was `'3'` until combos#3. That assertion pinned the defect: `String(minorToMajor(300, 2))`
+    // gives `3` — no decimals, and a dot as soon as there is a fraction. The field now speaks the
+    // hub's locale with the currency's decimals, so 300 minor reads «3,00» in es. Changed because
+    // the assertion was wrong, not because the code moved under it.
     expect(String((at(el, 'option-delta') as { value?: unknown }).value ?? ''),
-      'the supplement box does not carry the current supplement').toBe('3');
+      'the supplement box does not carry the current supplement').toBe('3,00');
     expect(choiceRow(el, 'o2').getAttribute('data-editing'),
       'nothing marks WHICH choice is being edited').toBe('true');
     expect(translated, 'it never says which choice is open for editing').toContain('ui.editingChoice');
@@ -1030,5 +1034,338 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     expect(translated, 'a rejection with no sentence of its own is shown raw').toContain('ui.errSaveOption');
     expect(options.find((o) => o.option_id === 'o1')!.price_delta,
       'the screen reported a failure but wrote anyway').toBe(0);
+  });
+});
+
+// ── 9 · Every control of the builder is a target a FINGER can hit (combos#4) ──────────────────
+//
+// Measured on origin/main@9a84fed in Chromium, on the built bundle, with Ionic in `ios` (the mode
+// the shell pins, ADR-0143), at 390×844, 820×1180 and 1440×900: the six icon-only controls of the
+// builder were **28,1 × 28,1 px** in all three, with 5,6 px between neighbours — centres 33,7 px
+// apart, four of them in a row, and the last one is Retirar. A mis-tap there is not "nothing
+// happens": it withdraws the choice next to the one that was aimed at.
+//
+// 44 is the floor: Apple HIG and WCAG 2.1 SC 2.5.5 (AAA) both put it there, Material puts it at
+// 48, and the rest of ERPlora already settled on 44 with tests behind it — `ok-data-table` pins
+// `.actions ion-button { min-width: 44px; min-height: 44px }` for the row actions of the list half
+// of this very screen, and invoice, cash_register, kitchen, customers, appointments and
+// reservations pin the same 44 on their own buttons.
+//
+// 🔴 IT IS PINNED FOR THE WHOLE SCREEN, NOT FOR THE ROW. The rule these tests exist to hold is
+// that there is ONE height: the arrows of a course sit in the same card head as its Editar and
+// Retirar, and the supplement form sits in the same card as the rows. Fixing only the choice
+// controls is how a card ends up with two sizes, which is worse than the small size it replaced.
+//
+// happy-dom does no layout, so the pixels are not measured here — the CONTRACT that produces them
+// is: the controls declare the shared class, and the stylesheet pins that class at 44. The
+// measurement itself is redone in a real browser and written into the PR.
+
+/** The `min-*` a rule pins for `sel`, in px, or null when the rule does not pin it. */
+function pinnedPx(css: string, sel: string, prop: 'min-width' | 'min-height'): number | null {
+  // The declaration block of the rule, taken from the component's own stylesheet.
+  const rule = new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css);
+  if (!rule) return null;
+  const decl = new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*([0-9.]+)px`).exec(rule[1]);
+  return decl ? Number(decl[1]) : null;
+}
+
+const styleSheet = (el: Mounted): string => {
+  const ctor = el.constructor as unknown as { styles: { cssText: string } | { cssText: string }[] };
+  const s = ctor.styles;
+  return Array.isArray(s) ? s.map((x) => x.cssText).join('\n') : s.cssText;
+};
+
+describe('every control of the builder is a target a finger can hit', () => {
+  /** The icon-only controls: no label to widen them, so they are the ones that collapse to 28. */
+  const ICON_ONLY = ['course-up', 'course-down', 'choice-up', 'choice-down', 'edit-choice', 'delete-choice'];
+  /** Controls WITH a label that share a row with the icon-only ones. Same row, same height. */
+  const LABELLED = ['edit-course', 'delete-course', 'back-to-menus', 'save-option'];
+
+  beforeEach(() => {
+    threeChoices();
+    persistChoices();
+  });
+
+  it('the icon-only controls all declare the same touch-target class', async () => {
+    const el = await mount();
+    await openMenu(el);
+    for (const test of ICON_ONLY) {
+      const btn = el.shadowRoot.querySelector(`[data-test="${test}"]`);
+      expect(btn, `\`${test}\` is not painted: the bench does not cover it`).toBeTruthy();
+      expect(btn!.classList.contains('icon-btn'),
+        `\`${test}\` does not carry the touch-target class: it keeps whatever size Ionic gives it`)
+        .toBe(true);
+    }
+  });
+
+  it('that class is pinned at 44×44 in the stylesheet, floor of Apple HIG and WCAG 2.5.5', async () => {
+    const css = styleSheet(await mount());
+    expect(pinnedPx(css, '.icon-btn', 'min-width'),
+      '`.icon-btn` does not pin a min-width: an icon-only ion-button collapses to 28 px')
+      .toBeGreaterThanOrEqual(44);
+    expect(pinnedPx(css, '.icon-btn', 'min-height'),
+      '`.icon-btn` does not pin a min-height: an icon-only ion-button collapses to 28 px')
+      .toBeGreaterThanOrEqual(44);
+  });
+
+  it('the labelled controls of the same rows get the same height: one card, one size', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const css = styleSheet(el);
+    expect(pinnedPx(css, 'ion-button', 'min-height'),
+      'the height is pinned per control instead of for the screen: the card ends up with two sizes')
+      .toBeGreaterThanOrEqual(44);
+    for (const test of LABELLED) {
+      expect(el.shadowRoot.querySelector(`[data-test="${test}"]`),
+        `\`${test}\` is not painted: the bench does not cover the row it shares`).toBeTruthy();
+    }
+  });
+
+  // 🔴 Found by the 44 px change itself, on the corrected bench at 390×844: four 44 px targets are
+  // 64 px wider per row than four 28 px ones, and with a long article name plus a supplement the
+  // Retirar button was pushed PAST the right edge of its own row (`delete.right > li.right`, with
+  // the page not scrolling sideways — so it was simply cut off). Growing a touch target until it
+  // leaves the card is not a fix, so the row is allowed to WRAP: on a narrow screen the actions
+  // drop to their own line at full size instead of being clipped or shrunk.
+  it('a long name does not push the actions out of the row: the row wraps instead', async () => {
+    const css = styleSheet(await mount());
+    const row = /\.choices li \{([^}]*)\}/.exec(css);
+    expect(row, 'the choice row has no rule of its own any more').toBeTruthy();
+    expect(/flex-wrap:\s*wrap/.test(row![1]),
+      'the row cannot wrap: a long article name pushes Retirar off the card at 390 px').toBe(true);
+    const actions = /\.choices \.row-actions \{([^}]*)\}/.exec(css);
+    expect(actions, 'the actions of a choice row have no rule of their own any more').toBeTruthy();
+    expect(/flex:\s*0 0 auto/.test(actions![1]),
+      'the actions can shrink: a 44 px target that shrinks is not a 44 px target').toBe(true);
+  });
+
+  it('the height survives Ionic: it is set on the host AND on the ion-button variable', async () => {
+    // `min-height` on the host alone is not enough on every Ionic control: the inner
+    // `.button-native` is what is actually tapped, and it follows `--min-height`. Both are pinned
+    // so the target is the box the finger lands on, not only the box the layout reserves.
+    const css = styleSheet(await mount());
+    expect(/--min-height:\s*44px/.test(css),
+      'only the host is pinned: the inner button Ionic actually paints can stay smaller').toBe(true);
+  });
+});
+
+// ── 10 · Money is written and read in the language of the hub (combos#3) ──────────────────────
+//
+// The screen printed `1,50 €` in the row and put **`1.5`** in the field that edits it, and printed
+// `1.250,50 €` and put `1250.5`. Measured on origin/main@9a84fed in Chromium on the built bundle.
+// Two separate defects, one cause: `minorToInput` was `String(minorToMajor(...))`, which speaks
+// JavaScript, not Spanish.
+//
+// 🔴 AND THE INPUT WAS WORSE THAN THE OUTPUT. `amountToMinor` normalised the comma with a single
+// `.replace(',', '.')`, which knows nothing about a GROUPING separator. Typed into the price field
+// on the same bench, saving a menu produced:
+//
+//     1,50        -> 150      ok
+//     1250,50     -> 125050   ok
+//     1.250,50    -> 0        <- SILENTLY FREE
+//     1.250,50 €  -> 0        <- SILENTLY FREE
+//
+// `1.250,50` is literally the string the screen prints two centimetres above the field, and since
+// hub#1090 money groups ALWAYS, so it is the normal case and not an exotic one. Copying it back in
+// saved the menu at zero with no error, no red sentence and nothing in the console — the exact
+// "NaN lands in an INTEGER column as a silent 0" the code's own comment claimed to have fixed.
+//
+// THE DECISION (market, 12+ references + forums, written into combos#3):
+//
+//  * OUT, into the field: the hub's locale, the CURRENCY's decimals, and **no grouping** —
+//    `1,50`, `1250,50`. Grouping stays on the read-only surfaces (hub#1090). Inside an editable
+//    field it is the single cause of the ×10 of Business Central in Spain, of the field Odoo
+//    blanked (odoo#19357), and of the cursor jumping while typing.
+//  * IN: BOTH separators, always. Odoo's top complaint is accepting only the active language's
+//    (`6.35` -> 635); Business Central shipped a whole release feature to stop doing it; Firefox
+//    resolved its own bug by falling back to the English reading.
+//  * PASTE: cleaned, not rejected — currency symbol, plain spaces, NBSP and NNBSP (the last one is
+//    what broke Odoo in French, odoo#106534), and grouping separators.
+//  * NEVER a silent wrong number. Where the two readings of a string differ by 1000×, the screen
+//    REFUSES and says so, exactly like the CHECK constraints in section 4. It does not pick one.
+//
+// The one case that is genuinely undecidable is a lone separator followed by exactly three digits:
+// a Spaniard typing `1.250` means 1250, a parser told "a lone separator is always decimal" reads
+// 1,25 — and either guess is wrong by a factor of 1000 in a till with a fiscal chain. So it is not
+// guessed.
+
+/** Types into a money field and SAVES the combo, returning the `price` that reached the command. */
+async function savePriceTyped(el: Mounted, typed: string): Promise<unknown> {
+  table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+  await settle(el);
+  type(el, 'combo-price', typed);
+  await settle(el);
+  commands = [];
+  at(el, 'save-combo')!.click();
+  await settle(el);
+  const cmd = commands.find((c) => c.name === 'combos.combos.update');
+  return cmd ? cmd.payload.price : undefined;
+}
+
+describe('money is written into the field in the language of the hub, and read back in both', () => {
+  it('opening a menu to edit puts the price in the hub locale, with the currency decimals', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    // 1350 minor, EUR, locale `es` -> «13,50». Not `13.5`: neither the separator nor the decimals.
+    expect(at(el, 'combo-price')!.value,
+      'the price field speaks JavaScript, not the language of the hub').toBe('13,50');
+  });
+
+  it('the same for the supplement of a choice, which is the other half of the same bug', async () => {
+    options = [{ option_id: 'o1', group_id: 'g1', source: 'product', source_ref: 'p1', price_delta: 150, sort_order: 0 }];
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    expect(at(el, 'option-delta')!.value,
+      'the supplement field speaks JavaScript, not the language of the hub').toBe('1,50');
+  });
+
+  it('a four-digit amount is NOT grouped inside the field, even though the row groups it', async () => {
+    // hub#1090 groups on the read-only surfaces. Inside an editable field grouping is the cause of
+    // the bug, not a nicety — and a field that cannot re-read its own output is broken by design.
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: { ...SET_MENU, price: 125050 } } }));
+    await settle(el);
+    expect(at(el, 'combo-price')!.value,
+      'the field groups: its own output does not survive being read back').toBe('1250,50');
+  });
+
+  it('what the field paints, the field can read back — the round trip is closed', async () => {
+    const el = await mount();
+    // The exact string the field itself produced for 125050.
+    expect(await savePriceTyped(el, '1250,50'), 'the field cannot re-read its own output').toBe(125050);
+    expect(await savePriceTyped(el, '13,50'), 'the field cannot re-read its own output').toBe(1350);
+  });
+
+  it('BOTH separators are accepted: a comma keyboard and a numpad both work', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '1,50'), 'the comma a Spanish keyboard types is refused').toBe(150);
+    expect(await savePriceTyped(el, '1.50'), 'the dot a numpad types is refused').toBe(150);
+  });
+
+  it('🔴 a grouped amount pasted from the row above no longer saves the menu as FREE', async () => {
+    const el = await mount();
+    // `1.250,50 €` is what the row two centimetres above prints, verbatim.
+    expect(await savePriceTyped(el, '1.250,50'), 'a pasted grouped amount still saves 0').toBe(125050);
+    expect(await savePriceTyped(el, '1.250,50 €'), 'the currency symbol still saves 0').toBe(125050);
+    expect(await savePriceTyped(el, '1 250,50'), 'a space-grouped amount still saves 0').toBe(125050);
+    // NNBSP U+202F is what French locales emit and what broke Odoo (odoo#106534).
+    expect(await savePriceTyped(el, '1 250,50'), 'a narrow no-break space still saves 0').toBe(125050);
+    expect(await savePriceTyped(el, '1 250,50'), 'a no-break space still saves 0').toBe(125050);
+  });
+
+  it('the English reading is accepted too: a pasted `1,250.50` is not 1 euro', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '1,250.50'), 'the English grouping is misread').toBe(125050);
+  });
+
+  it('a negative supplement still works: the sign is not eaten by the cleaning', async () => {
+    options = [{ option_id: 'o1', group_id: 'g1', source: 'product', source_ref: 'p1', price_delta: 0, sort_order: 0 }];
+    persistChoices();
+    const el = await mount();
+    await openMenu(el);
+    inRow(el, 'o1', 'edit-choice')!.click();
+    await settle(el);
+    type(el, 'option-delta', '-1,50');
+    await settle(el);
+    at(el, 'save-option')!.click();
+    await settle(el);
+    expect(commands.find((c) => c.name === 'combos.options.update')?.payload.price_delta,
+      'the minus sign was cleaned away with the currency symbol').toBe(-150);
+  });
+
+  it('an EMPTY field is still "no supplement", not a refusal', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, ''), 'an empty amount became something other than zero').toBe(0);
+  });
+
+  it('🔴 the undecidable amount is REFUSED in words, not guessed at 1000x either way', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combo-price', '1.250');
+    await settle(el);
+    commands = [];
+    at(el, 'save-combo')!.click();
+    await settle(el);
+    expect(commands.find((c) => c.name === 'combos.combos.update'),
+      'a `1.250` that could mean 1250 or 1,25 was guessed and written anyway').toBeUndefined();
+    expect(at(el, 'combo-blocked-reason'), 'it was refused in silence, which is the worse half').toBeTruthy();
+    expect(translated, 'the refusal has no sentence of its own').toContain('ui.errAmbiguousAmount');
+  });
+
+  // Caught in the browser after the first green: the refusal quoted a HARDCODED example, so
+  // typing `2.500` was answered with "could be 1250 or 1,25". A sentence that explains someone
+  // else's number is worse than no sentence — it reads like a bug and teaches nothing. The two
+  // readings are of the amount ACTUALLY typed. (Asserting the interpolated numbers, not the
+  // prose: reword the sentence and this stays green.)
+  it('the refusal names the two readings OF THE TYPED AMOUNT, not a canned example', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combo-price', '2.500');
+    await settle(el);
+    at(el, 'save-combo')!.click();
+    await settle(el);
+    const said = words(at(el, 'combo-blocked-reason'));
+    expect(said, 'the refusal does not quote what was typed').toContain('2.500');
+    expect(said, 'the refusal does not offer the grouped reading of THIS amount').toContain('2500');
+    expect(said, 'the refusal does not offer the decimal reading of THIS amount').toContain('2,50');
+    expect(said, 'the refusal is answering about a different number').not.toContain('1250');
+  });
+
+  it('three digits after the separator are NOT ambiguous when the currency has three', async () => {
+    // KWD: 1,250 dinars is an ordinary amount, not a riddle. The rule reads the CURRENCY, not a 2.
+    (globalThis as Record<string, any>).erplora.currencyDecimals = 3;
+    const el = await mount();
+    expect(await savePriceTyped(el, '1,250'), 'a legitimate 3-decimal amount is refused as ambiguous').toBe(1250);
+  });
+
+  it('a repeated separator is grouping, and that is not ambiguous', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '1.250.000'), 'a clearly grouped amount is not read as grouped').toBe(125000000);
+  });
+
+  it('leaving the field normalises what was typed, so the user SEES what will be saved', async () => {
+    // The market is unanimous that a currency field formats on blur, not on every keystroke:
+    // reformatting while typing moves the cursor. Blur is also the confirmation — type `1.5`, see
+    // `1,50`, and correct it BEFORE saving. That is what WooCommerce and Dolibarr never gave.
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combo-price', '1.5');
+    await settle(el);
+    at(el, 'combo-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    await settle(el);
+    expect(at(el, 'combo-price')!.value,
+      'the field does not settle on blur: the user only finds out what was saved afterwards').toBe('1,50');
+  });
+
+  it('blur does NOT rewrite an amount it cannot read: the typing survives to be corrected', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combo-price', '1.250');
+    await settle(el);
+    at(el, 'combo-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    await settle(el);
+    expect(at(el, 'combo-price')!.value,
+      'blur silently picked one of the two readings, which is the guess this rule exists to prevent')
+      .toBe('1.250');
+  });
+
+  it('the money fields are text + inputmode=decimal, never type=number', async () => {
+    // GOV.UK, Material and NN/g all say not to use type=number, and two OPEN Ionic bugs hit us
+    // directly: #29012 (iOS keyboard offers `,`, the value arrives `null`) and #28454 (Safari
+    // returns an empty string for a valid decimal). A field that empties itself in silence is the
+    // same class of defect as the one this section fixes.
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    const price = at(el, 'combo-price')!;
+    expect(price.getAttribute('type'), 'type=number empties itself in silence on an invalid value').toBe('text');
+    expect(price.getAttribute('inputmode'), 'without inputmode=decimal a tablet offers the wrong keyboard').toBe('decimal');
   });
 });
