@@ -562,6 +562,35 @@ describe('the UI rules already paid for in other modules', () => {
       'a key outside the module `ui.`/`errors.` space').toEqual([]);
   });
 
+  // 🔴 MEASURED IN CHROMIUM, NOT GUESSED. Inside this Shadow DOM the `color` attribute of an
+  // ion-button is worse than a no-op: Ionic's `.ion-color-*` classes live in the host document and
+  // do not cross the shadow boundary, so the BACKGROUND resolves to rgba(0,0,0,0) while the text
+  // stays rgb(255,255,255). White on white. Measured on the real bundle at 1440x900:
+  //
+  //     color absent   -> background rgb(0,84,233)   color rgb(255,255,255)   visible
+  //     color="danger" -> background rgba(0,0,0,0)   color rgb(255,255,255)   INVISIBLE
+  //     color="primary"-> background rgba(0,0,0,0)   color rgb(255,255,255)   INVISIBLE
+  //
+  // It hit «Guardar» and «Añadir elección» — the two primary actions of the screen. The colour has
+  // to come from CSS custom properties, which DO inherit through the shadow boundary, keyed off a
+  // `data-tone` hook. Nothing in the DOM shape reveals this, which is why the rule is pinned here.
+  it('no ion-button leans on the `color` attribute: inside the shadow root it paints white on white', async () => {
+    const el = await mount();
+    const offenders = (root: ShadowRoot) =>
+      [...root.querySelectorAll('ion-button[color]')].map((b) => `${b.getAttribute('data-test') ?? b.textContent?.trim()}:color=${b.getAttribute('color')}`);
+
+    expect(offenders(el.shadowRoot), 'these buttons of the MENU list render invisible in the hub').toEqual([]);
+    await openMenu(el);
+    expect(offenders(el.shadowRoot), 'these buttons of the BUILDER render invisible in the hub').toEqual([]);
+  });
+
+  it('the destructive action is still distinguishable, through the hook that does cross the shadow', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const danger = [...el.shadowRoot.querySelectorAll('[data-tone="danger"]')];
+    expect(danger.length, 'nothing marks the destructive action: it looks like every other button').toBeGreaterThan(0);
+  });
+
   it('without the manage permission the screen stays read-only: no +, no row actions', async () => {
     (globalThis as Record<string, any>).erplora.hasPermission = (p: string) => p !== 'combos.manage_combo';
     const el = await mount();

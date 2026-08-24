@@ -152,6 +152,23 @@ export class ErpCombosMenus extends LitElement {
      * parse time. Same trap applies to the HTML comments inside the render templates.)
      */
     [data-blocked='true'] { opacity:.55; }
+
+    /*
+     * THE COLOUR OF A BUTTON COMES FROM THESE VARS, NEVER FROM ion-button's color ATTRIBUTE.
+     * Measured in Chromium on the real bundle: inside this shadow root a color attribute leaves
+     * the background at rgba(0,0,0,0) and the text at rgb(255,255,255) -- white on white, which
+     * swallowed Guardar and Anadir eleccion. Ionic paints that attribute through .ion-color-*
+     * classes defined in the HOST document, and those never cross a shadow boundary. Custom
+     * properties do, so the tone is applied here and hooked on data-tone.
+     */
+    ion-button[data-tone='primary'] {
+      --background: var(--ion-color-primary, #0054e9);
+      --color: var(--ion-color-primary-contrast, #fff);
+    }
+    ion-button[data-tone='danger'] {
+      --background: var(--ion-color-danger, #c5000f);
+      --color: var(--ion-color-danger-contrast, #fff);
+    }
     .reason { color: var(--ion-color-danger, #d9480f); font-size:.85rem; margin:.2rem 0 0; }
     .muted { opacity:.75; font-size:.9rem; }
   `;
@@ -611,12 +628,12 @@ export class ErpCombosMenus extends LitElement {
    * `pointer-events:none`, so the tap dies and the reason lives in a `title` no tablet shows.
    */
   private blockingButton(opts: {
-    test: string; blocked: boolean; label: string; onClick: () => void; color?: string;
+    test: string; blocked: boolean; label: string; onClick: () => void; tone?: string;
   }) {
     return html`<ion-button
       size="small"
       data-test=${opts.test}
-      color=${opts.color ?? 'primary'}
+      data-tone=${opts.tone ?? 'primary'}
       data-blocked=${String(opts.blocked)}
       aria-disabled=${String(opts.blocked)}
       @click=${opts.onClick}
@@ -776,7 +793,7 @@ export class ErpCombosMenus extends LitElement {
               <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>
             </ion-button>
             <ion-button size="small" data-test="edit-course" @click=${() => this.startEditCourse(course)}>${t('ui.actionEdit')}</ion-button>
-            <ion-button size="small" color="danger" data-test="delete-course" @click=${() => this.deleteCourse(course)}>${t('ui.actionDelete')}</ion-button>`
+            <ion-button size="small" data-tone="danger" data-test="delete-course" @click=${() => this.deleteCourse(course)}>${t('ui.actionDelete')}</ion-button>`
           : nothing}
       </div>
       ${this.renderChoices(course)}
