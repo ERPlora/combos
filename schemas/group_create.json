@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "combos.groups.create",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["combo_id", "name"],
+  "properties": {
+    "combo_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "name": {
+      "type": "string", "minLength": 1, "maxLength": 255,
+      "description": "The course of this menu: Starter, Main, Dessert, Drink."
+    },
+    "min_choices": {
+      "type": "integer", "minimum": 0, "maximum": 50, "default": 1,
+      "description": "1 or more IS the obligation. There is no separate flag (Clover's rule)."
+    },
+    "max_choices": {
+      "type": "integer", "minimum": 0, "maximum": 50, "default": 1,
+      "description": "0 = no ceiling. Otherwise it must be >= min_choices, and the database refuses it if it is not."
+    },
+    "allow_repeat": { "type": "integer", "enum": [0, 1], "default": 0 },
+    "sort_order": { "type": "integer", "minimum": 0, "default": 0 }
+  }
+}

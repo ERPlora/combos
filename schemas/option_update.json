@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "combos.options.update",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "option_id",
+    "source",
+    "source_ref"
+  ],
+  "properties": {
+    "option_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "product",
+        "service"
+      ],
+      "description": "Which catalogue the component lives in. An OPAQUE reference: this module never learns what those rows are."
+    },
+    "source_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The id of the sellable article in that catalogue, with no foreign key."
+    },
+    "price_delta": {
+      "type": "integer",
+      "default": 0,
+      "description": "Supplement for substituting, in the whole unit of the money contract. May be NEGATIVE, and it adds to the CLOSED price of the combo, never to the component."
+    },
+    "sort_order": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    }
+  }
+}

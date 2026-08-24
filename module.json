@@ -1,0 +1,259 @@
+{
+  "id": "combos",
+  "name": "Combos",
+  "description": "Menus, packs and combos sold at a closed price, with ordered choice groups. Sole owner of the compound sellable article (ADR-0381).",
+  "icon": "ion:restaurant-outline",
+  "version": "0.1.0",
+  "agent": {
+    "description": "Menus, packs and combos: a compound article sold at a CLOSED price whose courses the customer picks from (menu del dia, 'sandwich + drink', 'cut + colour'). Sole owner of the compound sellable article and of its choice groups, for everything that is sold. A combo is an article of the catalogue, never a discount.",
+    "keywords": [
+      "combo",
+      "combos",
+      "menu",
+      "menu del dia",
+      "pack",
+      "bundle",
+      "set menu",
+      "meal deal",
+      "choice group"
+    ]
+  },
+  "depends_on": [],
+  "permissions": [
+    "combos.view_combo",
+    "combos.manage_combo"
+  ],
+  "role_permissions": {
+    "admin": [
+      "*"
+    ],
+    "manager": [
+      "combos.view_combo",
+      "combos.manage_combo"
+    ],
+    "employee": [
+      "combos.view_combo"
+    ]
+  },
+  "migrations": {
+    "postgres": [
+      "migrations/postgres/001_init.sql"
+    ]
+  },
+  "queries": {
+    "combos.combos.list": {
+      "permission": "combos.view_combo",
+      "sql": "queries/combos_list.sql",
+      "list": {
+        "search": [
+          "name",
+          "kitchen_name"
+        ],
+        "sort": [
+          "name",
+          "sort_order",
+          "price"
+        ],
+        "default_sort": "sort_order",
+        "default_dir": "asc",
+        "filters": {
+          "name": {
+            "op": "like"
+          },
+          "supply_kind": {
+            "op": "eq"
+          },
+          "is_active": {
+            "op": "eq"
+          }
+        },
+        "page_size": 50
+      },
+      "ai": {
+        "description": "Lists the combos of the hub with their closed price and their supply kind."
+      },
+      "expose_api": true
+    },
+    "combos.combos.get": {
+      "permission": "combos.view_combo",
+      "sql": "queries/combos_get.sql",
+      "ai": {
+        "description": "Detail of one combo by id."
+      }
+    },
+    "combos.groups.list": {
+      "permission": "combos.view_combo",
+      "sql": "queries/groups_list.sql",
+      "ai": {
+        "description": "The choice groups (courses) of a combo. min_choices >= 1 means the course must be resolved before the order can be sent."
+      }
+    },
+    "combos.options.list": {
+      "permission": "combos.view_combo",
+      "sql": "queries/options_list.sql",
+      "ai": {
+        "description": "The components offered by one choice group, with the supplement charged for substituting."
+      }
+    },
+    "combos.combos.all": {
+      "permission": "combos.view_combo",
+      "sql": "queries/combos_all.sql",
+      "ai": {
+        "description": "The full catalogue of combos on sale, with the closed price, the supply kind and the tax category. This is the authoritative read: whoever charges verifies the price here, never in what was sent to it."
+      },
+      "expose_api": true
+    },
+    "combos.options.all": {
+      "permission": "combos.view_combo",
+      "sql": "queries/options_all.sql",
+      "ai": {
+        "description": "Every component of every combo, flattened with the rules of its group and the closed price of its combo. This is what the server reads to build a menu and to decide whether it becomes one line or one line per component."
+      },
+      "expose_api": true
+    }
+  },
+  "commands": {
+    "combos.combos.create": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/combo_create.sql"
+      ],
+      "schema": "schemas/combo_create.json",
+      "emit": [
+        "combos.combo.created"
+      ],
+      "ai": {
+        "description": "Creates a combo with its closed price and its supply kind."
+      }
+    },
+    "combos.combos.update": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/combo_update.sql"
+      ],
+      "schema": "schemas/combo_update.json",
+      "emit": [
+        "combos.combo.updated"
+      ],
+      "ai": {
+        "description": "Edits a combo. It never rewrites an order already taken."
+      }
+    },
+    "combos.combos.delete": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/combo_delete_options.sql",
+        "commands/combo_delete_groups.sql",
+        "commands/combo_delete.sql"
+      ],
+      "schema": "schemas/combo_delete.json",
+      "emit": [
+        "combos.combo.deleted"
+      ],
+      "ai": {
+        "description": "Withdraws a combo together with its groups and its components."
+      }
+    },
+    "combos.groups.create": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/group_create.sql"
+      ],
+      "schema": "schemas/group_create.json",
+      "emit": [
+        "combos.choice_group.created"
+      ],
+      "ai": {
+        "description": "Adds a choice group (a course) to a combo."
+      }
+    },
+    "combos.groups.update": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/group_update.sql"
+      ],
+      "schema": "schemas/group_update.json",
+      "emit": [
+        "combos.choice_group.updated"
+      ],
+      "ai": {
+        "description": "Edits a choice group."
+      }
+    },
+    "combos.groups.delete": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/group_delete_options.sql",
+        "commands/group_delete.sql"
+      ],
+      "schema": "schemas/group_delete.json",
+      "emit": [
+        "combos.choice_group.deleted"
+      ],
+      "ai": {
+        "description": "Removes a choice group together with its components."
+      }
+    },
+    "combos.options.create": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/option_create.sql"
+      ],
+      "schema": "schemas/option_create.json",
+      "emit": [
+        "combos.choice_option.created"
+      ],
+      "ai": {
+        "description": "Adds a component to a choice group, referenced opaquely by source and source_ref."
+      }
+    },
+    "combos.options.update": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/option_update.sql"
+      ],
+      "schema": "schemas/option_update.json",
+      "emit": [
+        "combos.choice_option.updated"
+      ],
+      "ai": {
+        "description": "Edits a component of a choice group."
+      }
+    },
+    "combos.options.delete": {
+      "permission": "combos.manage_combo",
+      "transaction": true,
+      "sql": [
+        "commands/option_delete.sql"
+      ],
+      "schema": "schemas/option_delete.json",
+      "emit": [
+        "combos.choice_option.deleted"
+      ],
+      "ai": {
+        "description": "Removes a component from a choice group."
+      }
+    }
+  },
+  "events": {
+    "emits": [
+      "combos.combo.created",
+      "combos.combo.updated",
+      "combos.combo.deleted",
+      "combos.choice_group.created",
+      "combos.choice_group.updated",
+      "combos.choice_group.deleted",
+      "combos.choice_option.created",
+      "combos.choice_option.updated",
+      "combos.choice_option.deleted"
+    ]
+  }
+}

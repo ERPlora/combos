@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "combos.combos.update",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "combo_id",
+    "name",
+    "price",
+    "supply_kind"
+  ],
+  "properties": {
+    "combo_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "kitchen_name": {
+      "type": "string",
+      "default": "",
+      "maxLength": 255,
+      "description": "Name for the kitchen ticket. Empty = uses `name` (Toast's rule)."
+    },
+    "price": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The CLOSED price, in the whole unit of the money contract."
+    },
+    "tax_category_key": {
+      "type": "string",
+      "default": "",
+      "maxLength": 64,
+      "description": "The rate of the single line when supply_kind is `service`. Mandatory in that case: a single-supply combo with no rate of its own cannot be billed."
+    },
+    "supply_kind": {
+      "type": "string",
+      "enum": [
+        "service",
+        "goods"
+      ],
+      "default": "service",
+      "description": "`service` = single supply, ONE line at tax_category_key (art. 91.Uno.2.2 LIVA: hospitality served on the premises is 10%, the wine included). `goods` = supply of goods of diverse nature, the closed price apportioned into ONE LINE PER COMPONENT (art. 79.Dos LIVA). The business declares it; the till never guesses it."
+    },
+    "is_active": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "default": 1
+    },
+    "sort_order": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    }
+  }
+}
