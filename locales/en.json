@@ -74,6 +74,10 @@
     "optionEdit": "Edit this choice",
     "optionDelete": "Remove this choice",
     "editingChoice": "Editing «{article}». It keeps its position in the course.",
+    "bulkAdd": "Add several",
+    "bulkTitle": "Add articles to this course",
+    "bulkAddCount": "Add {n} selected",
+    "bulkAlready": "Already in this course",
     "sourceProduct": "Product",
     "sourceService": "Service",
     "catalogueMissing": "{module} is not installed, so its articles cannot be picked here. Install it from the marketplace.",
@@ -99,7 +103,11 @@
     "errDeleteCourse": "The course could not be removed.",
     "errDeleteOption": "The choice could not be removed.",
     "moveUp": "Move up",
-    "moveDown": "Move down"
+    "moveDown": "Move down",
+    "errNoneSelected": "Tick at least one article first.",
+    "errLoadCatalogue": "The article catalogue could not be loaded, so this list may be incomplete.",
+    "errLoadTaxCategories": "The VAT categories could not be loaded.",
+    "dragToReorder": "Drag to reorder"
   },
   "errors": {
     "combos.combo_in_use": "This menu is being used and cannot be withdrawn: {message}"

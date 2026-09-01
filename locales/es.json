@@ -74,6 +74,10 @@
     "optionEdit": "Editar esta elección",
     "optionDelete": "Quitar esta elección",
     "editingChoice": "Editando «{article}». Conserva su posición en el curso.",
+    "bulkAdd": "Añadir varios",
+    "bulkTitle": "Añadir artículos a este curso",
+    "bulkAddCount": "Añadir {n} seleccionados",
+    "bulkAlready": "Ya está en este curso",
     "sourceProduct": "Producto",
     "sourceService": "Servicio",
     "catalogueMissing": "{module} no está instalado, así que sus artículos no se pueden elegir aquí. Instálalo desde el marketplace.",
@@ -99,7 +103,11 @@
     "errDeleteCourse": "No se ha podido quitar el curso.",
     "errDeleteOption": "No se ha podido quitar la elección.",
     "moveUp": "Subir",
-    "moveDown": "Bajar"
+    "moveDown": "Bajar",
+    "errNoneSelected": "Marca al menos un artículo.",
+    "errLoadCatalogue": "No se ha podido cargar el catálogo de artículos, así que esta lista puede estar incompleta.",
+    "errLoadTaxCategories": "No se han podido cargar las categorías de IVA.",
+    "dragToReorder": "Arrastra para reordenar"
   },
   "errors": {
     "combos.combo_in_use": "Este menú se está usando y no se puede retirar: {message}"
