@@ -196,6 +196,38 @@ const CATALOGUES = [
   { source: 'service', query: 'services.services.list', moduleKey: 'ui.moduleServices' },
 ] as const;
 
+/** A row of a reorderable list, as it was measured when the drag started. */
+interface Slot { top: number; height: number }
+
+/** `list` with the row at `from` taken out and put back in at `to`. */
+function moved<T>(list: T[], from: number, to: number): T[] {
+  const out = [...list];
+  const [row] = out.splice(from, 1);
+  out.splice(to, 0, row);
+  return out;
+}
+
+/**
+ * Which slot a dragged row lands on when the pointer is at `y` — the whole arithmetic of the drag,
+ * kept pure so it can be proven without a browser.
+ *
+ * `slots` are the row boxes measured ONCE, when the drag started. That is deliberate: while the
+ * finger is down the rows are reordered live for feedback, so re-measuring them mid-gesture would
+ * chase a moving target and make the list flicker between two positions. The boxes describe the
+ * SLOTS, which do not move; only what sits in them does.
+ *
+ * The pointer belongs to the first slot whose middle it has not passed yet, which is the standard
+ * insertion-point reading (Shopify, Odoo, Ionic's own reorder all behave this way): halfway down a
+ * row is where it takes the place of that row. Above the list it lands first, below it lands last.
+ */
+export function dropIndexAt(y: number, slots: Slot[], from: number): number {
+  if (slots.length === 0) return from;
+  for (let i = 0; i < slots.length; i += 1) {
+    if (y <= slots[i].top + slots[i].height / 2) return i;
+  }
+  return slots.length - 1;
+}
+
 /** A business rejection (hub#139) carries a stable `code`: translate it through `errors.<code>`. */
 function domainErrorText(e: unknown, fallbackKey: string): string {
   const code = (e as { code?: unknown } | null)?.code;
@@ -314,6 +346,31 @@ export class ErpCombosMenus extends LitElement {
        the icon keeps the middle. */
     .icon-btn { min-width:44px; min-height:44px; --min-height:44px; --padding-start:0; --padding-end:0; }
 
+    /*
+     * THE DRAG HANDLE, AND THE ONE LINE THAT MAKES THE GESTURE POSSIBLE (combos#6).
+     *
+     * A drag on a touch screen competes with the browser's own scroll, and the ONLY thing that
+     * settles it is touch-action. preventDefault() on pointerdown does not: by the time it runs the
+     * browser has already decided the gesture is a scroll.
+     *
+     * It is pinned on the HANDLE and nowhere else, in both places it has to be pinned:
+     *
+     *  * on the host, and
+     *  * on ::part(native) -- touch-action is NOT inherited, and what the finger actually lands on
+     *    is the button Ionic paints inside its own shadow root. Pinning only the host leaves the
+     *    page scrolling under a handle that looks draggable and is not.
+     *
+     * And nowhere else ON PURPOSE. touch-action:none on the row, the card or the scrolling body
+     * would kill the page scroll on a tablet, which is a far worse defect than the one this fixes.
+     * The rest of the row keeps its normal behaviour, so the list still scrolls under a finger that
+     * does not start on the handle.
+     */
+    .drag-handle { touch-action:none; cursor:grab; }
+    .drag-handle::part(native) { touch-action:none; }
+    /* The row that is being carried, so the finger can see what it picked up. */
+    [data-dragging='true'] { opacity:.6; }
+    [data-dragging='true'] .drag-handle { cursor:grabbing; }
+
     .reason { color: var(--ion-color-danger, #d9480f); font-size:.85rem; margin:.2rem 0 0; }
     .muted { opacity:.75; font-size:.9rem; }
   `;
@@ -362,13 +419,34 @@ export class ErpCombosMenus extends LitElement {
   @state() private optionReason = '';
   @state() private optionError = '';
 
+  // ── Bulk add of articles (combos#6) ─────────────────────────────────────────────────────────
+  /** The course whose bulk picker is open. `''` = the picker is closed. */
+  @state() private bulkFor = '';
+  @state() private bulkQuery = '';
+  /** The opaque references ticked in the picker, in the order they were ticked. */
+  @state() private bulkPicked: string[] = [];
+  @state() private bulkReason = '';
+
   // ── Foreign catalogues (OPTIONAL: the owner module may not be installed) ────────────────────
   @state() private articles: Article[] = [];
   /** i18n keys of the modules that are NOT installed, so their absence can be SAID. */
   @state() private missingCatalogues: string[] = [];
+  /** A catalogue that BROKE — not the same thing as one that is absent, and never silent. */
+  @state() private catalogueError = '';
   @state() private taxCategories: TaxCategory[] = [];
+  @state() private taxCategoriesError = '';
 
   @state() private saving = false;
+
+  /**
+   * The drag in flight, or null. `at` is where the row currently sits on screen (the list is
+   * reordered live, so the finger carries something), `from` is where it started, and `original`
+   * is what the screen has to go back to if the gesture is cancelled.
+   */
+  private drag:
+    | { kind: 'course'; from: number; at: number; slots: Slot[]; original: Course[] }
+    | { kind: 'choice'; groupId: string; from: number; at: number; slots: Slot[]; original: Choice[] }
+    | null = null;
 
   private ctrl!: ListController<Combo>;
 
@@ -385,7 +463,107 @@ export class ErpCombosMenus extends LitElement {
 
   disconnectedCallback(): void {
     window.removeEventListener('erplora:locale-changed', this.onLocaleChange);
+    // A drag holds three listeners on `window`. Leaving the view mid-gesture (a hub navigation, a
+    // module reload) would leave them pointing at a detached component for the rest of the session.
+    this.endDrag();
     super.disconnectedCallback();
+  }
+
+  // ── Reordering by dragging, which never replaces the arrows (combos#6) ──────────────────────
+  //
+  // WCAG 2.2 SC 2.5.7 is literal: every function that uses a dragging movement has to be reachable
+  // without dragging, and reordering by drag alone is failure F108 by name — with technique G219
+  // blessing step-wise arrows as the answer. Its note is the one that matters here: «this
+  // requirement is separate from keyboard accessibility because people using a touchscreen device
+  // may not use a physical keyboard». Our users are on a tablet, so the keyboard is no defence.
+  //
+  // The handle is what every verified product ships as the affordance — Lightspeed K-Series (equal
+  // sign), Square, Toast (six dots), Odoo (`widget="handle"`), and Shopify sends both. So: handle
+  // AND arrows, and both end in exactly the same write.
+  //
+  // Ionic's own `ion-reorder-group` was the first thing looked at, and it is NOT usable from here:
+  // the shell registers a fixed list of `ion-*` custom elements (`hub/apps/web/src/lib/ionic-wc.ts`)
+  // and reorder is not in it, so the element would render as an inert unknown tag — no error, no
+  // behaviour. That is the hub#1129 trap, and a module cannot fix it in its own repository.
+
+  /** The rows a drag of `kind` can land between, in the order they are painted. */
+  private dragRows(kind: 'course' | 'choice', groupId: string): HTMLElement[] {
+    const selector = kind === 'course'
+      ? '[data-test="course"]'
+      : `[data-test="course"][data-group-id="${groupId}"] [data-test="choice"]`;
+    return [...this.renderRoot.querySelectorAll(selector)] as HTMLElement[];
+  }
+
+  /** Picks a row up. `id` is the `group_id` of a course or the `option_id` of a choice. */
+  private beginDrag(e: PointerEvent, kind: 'course' | 'choice', groupId: string, id: string): void {
+    if (!can('combos.manage_combo') || this.drag) return;
+    const list = kind === 'course' ? this.courses : (this.choices[groupId] ?? []);
+    const from = kind === 'course'
+      ? this.courses.findIndex((c) => c.group_id === id)
+      : (this.choices[groupId] ?? []).findIndex((o) => o.option_id === id);
+    // A single row has nowhere to go, and starting a drag there would only steal the page scroll.
+    if (from < 0 || list.length < 2) return;
+    const slots = this.dragRows(kind, groupId).map((row) => {
+      const box = row.getBoundingClientRect();
+      return { top: box.top, height: box.height };
+    });
+    e.preventDefault();
+    // Optional on purpose: it is what keeps the events coming when the finger leaves the handle in
+    // a browser, and it does not exist in every DOM this component is tested in. The listeners
+    // below are on `window`, so the gesture works either way.
+    (e.currentTarget as Element & { setPointerCapture?: (id: number) => void })
+      .setPointerCapture?.(e.pointerId);
+    this.drag = kind === 'course'
+      ? { kind, from, at: from, slots, original: this.courses }
+      : { kind, groupId, from, at: from, slots, original: this.choices[groupId] ?? [] };
+    window.addEventListener('pointermove', this.onDragMove);
+    window.addEventListener('pointerup', this.onDragEnd);
+    window.addEventListener('pointercancel', this.onDragCancel);
+    this.requestUpdate();
+  }
+
+  /** Carries the row with the finger: the list is reordered on screen, nothing is written yet. */
+  private readonly onDragMove = (e: Event): void => {
+    const drag = this.drag;
+    if (!drag) return;
+    const to = dropIndexAt((e as PointerEvent).clientY, drag.slots, drag.from);
+    if (to === drag.at) return;
+    if (drag.kind === 'course') this.courses = moved(this.courses, drag.at, to);
+    else this.choices = { ...this.choices, [drag.groupId]: moved(this.choices[drag.groupId] ?? [], drag.at, to) };
+    drag.at = to;
+  };
+
+  /** Drops the row. Only a drop that actually moved something writes. */
+  private readonly onDragEnd = (): void => {
+    const drag = this.drag;
+    this.endDrag();
+    if (!drag || drag.at === drag.from) return;
+    const lo = Math.min(drag.from, drag.at);
+    const hi = Math.max(drag.from, drag.at);
+    if (drag.kind === 'course') void this.persistCourseOrder(lo, hi);
+    else void this.persistChoiceOrder(drag.groupId, lo, hi);
+  };
+
+  /** The gesture was taken away (a call, a system sheet): the screen goes back to what it was. */
+  private readonly onDragCancel = (): void => {
+    const drag = this.drag;
+    this.endDrag();
+    if (!drag) return;
+    if (drag.kind === 'course') this.courses = drag.original;
+    else this.choices = { ...this.choices, [drag.groupId]: drag.original };
+  };
+
+  private endDrag(): void {
+    window.removeEventListener('pointermove', this.onDragMove);
+    window.removeEventListener('pointerup', this.onDragEnd);
+    window.removeEventListener('pointercancel', this.onDragCancel);
+    this.drag = null;
+    this.requestUpdate();
+  }
+
+  /** True while `id` is the row being carried, so the row can show it. */
+  private isDragging(kind: 'course' | 'choice', index: number): boolean {
+    return this.drag?.kind === kind && this.drag.at === index;
   }
 
   // ── Foreign reads ──────────────────────────────────────────────────────────────────────────
@@ -402,28 +580,48 @@ export class ErpCombosMenus extends LitElement {
   private async loadCatalogues(search = ''): Promise<void> {
     const found: Article[] = [];
     const missing: string[] = [];
-    for (const cat of CATALOGUES) {
-      const params = search ? { search, limit: 50 } : { limit: 50 };
-      const rows =
-        cat.source === 'product'
-          ? await erplora().queryOptional<Record<string, unknown>[]>('inventory.products.list', params)
-          : await erplora().queryOptional<Record<string, unknown>[]>('services.services.list', params);
-      if (rows === undefined) {
-        missing.push(cat.moduleKey);
-        continue;
+    try {
+      for (const cat of CATALOGUES) {
+        const params = search ? { search, limit: 50 } : { limit: 50 };
+        const rows =
+          cat.source === 'product'
+            ? await erplora().queryOptional<Record<string, unknown>[]>('inventory.products.list', params)
+            : await erplora().queryOptional<Record<string, unknown>[]>('services.services.list', params);
+        if (rows === undefined) {
+          missing.push(cat.moduleKey);
+          continue;
+        }
+        for (const r of rows ?? []) {
+          found.push({ value: `${cat.source}:${String(r.id)}`, label: String(r.name ?? r.id) });
+        }
       }
-      for (const r of rows ?? []) {
-        found.push({ value: `${cat.source}:${String(r.id)}`, label: String(r.name ?? r.id) });
-      }
+    } catch (e) {
+      // A catalogue that BREAKS is not a catalogue that is ABSENT, and the difference is the whole
+      // point: swallowed, both look like an empty picker, which reads as "you have no articles" and
+      // sends the merchant off to create duplicates of what is already in the shop. `queryOptional`
+      // already answers `undefined` for the absent module, so anything that reaches here is a real
+      // failure and is SAID. The previous list is kept: half a catalogue is worse than the last
+      // good one, because there is no way to tell which half is missing.
+      this.catalogueError = domainErrorText(e, 'ui.errLoadCatalogue');
+      return;
     }
+    this.catalogueError = '';
     this.articles = found;
     this.missingCatalogues = missing;
   }
 
   /** The fiscal categories of the hub. `taxes` owns them, and it may not be installed either. */
   private async loadTaxCategories(): Promise<void> {
-    const rows = await erplora().queryOptional<TaxCategory[]>('taxes.categories.list', { limit: 100 });
-    this.taxCategories = rows ?? [];
+    try {
+      const rows = await erplora().queryOptional<TaxCategory[]>('taxes.categories.list', { limit: 100 });
+      this.taxCategories = rows ?? [];
+      this.taxCategoriesError = '';
+    } catch (e) {
+      // Unhandled, this rejected the `Promise.all` of `connectedCallback` and the whole screen came
+      // up blank with nothing but an unhandled rejection in a console nobody has open on a tablet.
+      this.taxCategoriesError = domainErrorText(e, 'ui.errLoadTaxCategories');
+      this.taxCategories = [];
+    }
   }
 
   // ── The menu list ──────────────────────────────────────────────────────────────────────────
@@ -518,6 +716,9 @@ export class ErpCombosMenus extends LitElement {
     this.courses = [];
     this.choices = {};
     this.coursesError = '';
+    // The picker belongs to a course of THIS menu. Left open, it would float over the menu list
+    // pointing at a course that is no longer on screen.
+    this.closeBulk();
   }
 
   // ── Combo form ─────────────────────────────────────────────────────────────────────────────
@@ -699,16 +900,23 @@ export class ErpCombosMenus extends LitElement {
     const from = this.courses.findIndex((c) => c.group_id === course.group_id);
     const to = from + delta;
     if (from < 0 || to < 0 || to >= this.courses.length) return;
-    const reordered = [...this.courses];
-    [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
     // Optimistic: the arrow answers immediately, and a failure reloads the truth from the server.
-    this.courses = reordered;
+    this.courses = moved(this.courses, from, to);
+    await this.persistCourseOrder(Math.min(from, to), Math.max(from, to));
+  }
+
+  /**
+   * Writes the position of every course between `lo` and `hi`, which is what BOTH ways of
+   * reordering end in — one step with an arrow (two rows) or a drop several slots away (as many
+   * rows as it displaced). Only the range that actually moved is written: rewriting the whole
+   * course list on every nudge would multiply the round trips for nothing.
+   */
+  private async persistCourseOrder(lo: number, hi: number): Promise<void> {
     this.saving = true;
     this.courseError = '';
     try {
-      // Only the two that actually moved are written.
-      for (const index of [from, to]) {
-        const c = reordered[index];
+      for (let index = lo; index <= hi; index += 1) {
+        const c = this.courses[index];
         await erplora().command('combos.groups.update', {
           group_id: c.group_id,
           name: c.name,
@@ -861,16 +1069,20 @@ export class ErpCombosMenus extends LitElement {
     const from = list.findIndex((o) => o.option_id === choice.option_id);
     const to = from + delta;
     if (from < 0 || to < 0 || to >= list.length) return;
-    const reordered = [...list];
-    [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
     // Optimistic: the arrow answers immediately, and a failure reloads the truth from the server.
-    this.choices = { ...this.choices, [choice.group_id]: reordered };
+    this.choices = { ...this.choices, [choice.group_id]: moved(list, from, to) };
+    await this.persistChoiceOrder(choice.group_id, Math.min(from, to), Math.max(from, to));
+  }
+
+  /** The same write for both ways of reordering a course's choices: the arrows and the handle. */
+  private async persistChoiceOrder(groupId: string, lo: number, hi: number): Promise<void> {
     this.saving = true;
-    this.optionScope = choice.group_id;
+    this.optionScope = groupId;
     this.optionError = '';
     try {
-      for (const index of [from, to]) {
-        const o = reordered[index];
+      const list = this.choices[groupId] ?? [];
+      for (let index = lo; index <= hi; index += 1) {
+        const o = list[index];
         // `option_update.sql` rewrites the WHOLE row, so the reference and the supplement travel
         // with the new position: sending only `sort_order` would blank the component.
         await erplora().command('combos.options.update', {
@@ -884,6 +1096,94 @@ export class ErpCombosMenus extends LitElement {
       await this.loadCourses();
     } catch (e) {
       this.optionError = domainErrorText(e, 'ui.errSaveOption');
+      await this.loadCourses();
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  // ── Adding several articles at once (combos#6) ──────────────────────────────────────────────
+  //
+  // The frontier the market barrido found is not catalogue size, it is TPV vs ERP: every verified
+  // hospitality TPV ships bulk add and the ones that ship one line at a time are the ones
+  // generating the complaints (Odoo's «keying it in 1 line at a time is going to take too long»,
+  // Square's «VERY inconvenient to have to select each modifier inside each item»). Copied from
+  // Lightspeed K-Series, the closest product: a pop-up with a filter, a checkbox per row and a
+  // primary button whose LABEL CARRIES THE COUNT.
+  //
+  // The supplement is NOT asked here, on purpose. It is the exception, not the rule, and asking for
+  // it once per row would turn a bulk add back into the one-at-a-time form it replaces. It is set
+  // afterwards by editing the row, which combos#1 made possible without losing the position.
+
+  private openBulk(groupId: string): void {
+    if (!can('combos.manage_combo')) return;
+    this.bulkFor = groupId;
+    this.bulkPicked = [];
+    this.bulkQuery = '';
+    this.bulkReason = '';
+    // Reopened with whatever the last search left behind, the picker would show a filtered
+    // catalogue with an empty search box: the full first page is asked for again.
+    void this.loadCatalogues();
+  }
+
+  private closeBulk(): void {
+    this.bulkFor = '';
+    this.bulkPicked = [];
+    this.bulkQuery = '';
+    this.bulkReason = '';
+  }
+
+  /** Searches on the SERVER: both catalogues paginate at 50 (the hub#650 hole). */
+  private searchBulk(query: string): void {
+    this.bulkQuery = query;
+    void this.loadCatalogues(query);
+  }
+
+  private tickBulk(ref: string, owned: boolean, checked: boolean): void {
+    // `ux_combos_choice_option` refuses the same article twice in the same course, so a row that is
+    // already there cannot be ticked. It stays visible and says why instead of disappearing: a
+    // picker that hides what is already in the course reads as a catalogue with holes in it.
+    if (owned) return;
+    this.bulkPicked = checked
+      ? [...this.bulkPicked.filter((r) => r !== ref), ref]
+      : this.bulkPicked.filter((r) => r !== ref);
+  }
+
+  private async confirmBulk(): Promise<void> {
+    if (!can('combos.manage_combo')) return;
+    const groupId = this.bulkFor;
+    if (!groupId) return;
+    const picked = this.bulkPicked;
+    if (picked.length === 0) {
+      // The tap ANSWERS: same contract as every other blocked button on this screen.
+      this.bulkReason = t('ui.errNoneSelected');
+      return;
+    }
+    this.saving = true;
+    this.optionScope = groupId;
+    this.optionError = ''; this.optionReason = '';
+    // They go in AFTER what is already there, in the order they were ticked: appending is the only
+    // placement that cannot silently reshuffle the choices already agreed.
+    const base = (this.choices[groupId] ?? []).length;
+    try {
+      for (const [i, ref] of picked.entries()) {
+        const [source, ...rest] = ref.split(':');
+        await erplora().command('combos.options.create', {
+          group_id: groupId,
+          source,
+          source_ref: rest.join(':'),
+          price_delta: 0,
+          sort_order: base + i,
+        });
+      }
+      this.closeBulk();
+      await this.loadCourses();
+    } catch (e) {
+      // Whatever landed before the failure is REAL. The picker closes and the course is reloaded so
+      // the screen shows what the server actually holds, not what was attempted — a picker left
+      // open with its ticks intact invites adding the same rows a second time.
+      this.optionError = domainErrorText(e, 'ui.errSaveOption');
+      this.closeBulk();
       await this.loadCourses();
     } finally {
       this.saving = false;
@@ -1029,11 +1329,17 @@ export class ErpCombosMenus extends LitElement {
         ? html`<p class="muted" data-test="choices-empty">${t('ui.optionsEmpty')}</p>`
         : html`<ul class="choices">
             ${rows.map((o, i) => html`<li data-test="choice" data-option-id=${o.option_id}
-              data-editing=${String(this.editingChoice?.option_id === o.option_id)}>
+              data-editing=${String(this.editingChoice?.option_id === o.option_id)}
+              data-dragging=${String(this.drag?.kind === 'choice' && this.drag.groupId === course.group_id && this.drag.at === i)}>
               <span class="name">${this.articleLabel(o)}</span>
               ${o.price_delta ? html`<span class="delta">${erplora().formatMoney(o.price_delta)}</span>` : nothing}
               ${manage
                 ? html`<span class="row-actions">
+                    <ion-button size="small" class="icon-btn drag-handle" data-test="choice-drag"
+                      aria-label=${t('ui.dragToReorder')}
+                      @pointerdown=${(e: PointerEvent) => this.beginDrag(e, 'choice', course.group_id, o.option_id)}>
+                      <ion-icon name="reorder-three-outline" slot="icon-only"></ion-icon>
+                    </ion-button>
                     <ion-button size="small" class="icon-btn" data-test="choice-up" aria-label=${t('ui.moveUp')}
                       data-blocked=${String(i === 0)} aria-disabled=${String(i === 0)}
                       @click=${() => this.moveChoice(o, -1)}>
@@ -1088,7 +1394,10 @@ export class ErpCombosMenus extends LitElement {
               ? html`<ion-button size="small" data-test="cancel-choice" @click=${() => this.cancelEditChoice()}>
                   ${t('ui.cancel')}
                 </ion-button>`
-              : nothing}
+              : html`<!-- The other door in, and the one a real catalogue uses: several at once. -->
+                <ion-button size="small" data-test="bulk-add" @click=${() => this.openBulk(course.group_id)}>
+                  <ion-icon name="add-outline" slot="start"></ion-icon>${t('ui.bulkAdd')}
+                </ion-button>`}
           </div>
           <p class="help">${t('ui.optionDeltaHelp')}</p>`
         : nothing}
@@ -1103,12 +1412,18 @@ export class ErpCombosMenus extends LitElement {
   private renderCourse(course: Course, index: number) {
     const manage = can('combos.manage_combo');
     const required = Number(course.min_choices ?? 0) >= 1;
-    return html`<section class="card" data-test="course" data-group-id=${course.group_id} data-required=${String(required)}>
+    return html`<section class="card" data-test="course" data-group-id=${course.group_id} data-required=${String(required)}
+      data-dragging=${String(this.isDragging('course', index))}>
       <div class="card-head">
         <span class="title">${course.name}</span>
         <span class="badge" data-test="course-rule">${this.courseRule(course)}</span>
         ${manage
           ? html`
+            <ion-button size="small" class="icon-btn drag-handle" data-test="course-drag"
+              aria-label=${t('ui.dragToReorder')}
+              @pointerdown=${(e: PointerEvent) => this.beginDrag(e, 'course', '', course.group_id)}>
+              <ion-icon name="reorder-three-outline" slot="icon-only"></ion-icon>
+            </ion-button>
             <ion-button size="small" class="icon-btn" data-test="course-up" aria-label=${t('ui.moveUp')}
               data-blocked=${String(index === 0)} aria-disabled=${String(index === 0)}
               @click=${() => this.moveCourse(course, -1)}>
@@ -1125,6 +1440,88 @@ export class ErpCombosMenus extends LitElement {
       </div>
       ${this.renderChoices(course)}
     </section>`;
+  }
+
+  /**
+   * The bulk picker, as Lightspeed K-Series ships it: a pop-up with its own SERVER-side filter, a
+   * checkbox per row, and a primary button that says how many articles are going in.
+   *
+   * TWO THINGS ABOUT `ion-modal` THAT ARE NOT OPTIONAL, both measured in Chromium on the built
+   * bundle, because neither is visible from the source:
+   *
+   *  1. IT IS REPARENTED TO `<body>` when it presents, so this component's stylesheet does NOT
+   *     reach anything inside it. Everything in here is an Ionic primitive or carries its own
+   *     inline style — the same rule `services`' own modals already follow.
+   *  2. THE ELEMENT AND ITS WHOLE BODY STAY IN THE TEMPLATE, ALWAYS. Only `isOpen` moves.
+   *     Rendering the modal only while open left it FROZEN ON SCREEN after a confirmed bulk add —
+   *     still saying «Guardando…», with the course already updated behind it: once Ionic has moved
+   *     the element out, taking it out of the Lit template takes out nothing, and nothing dismisses
+   *     it. Swapping only the BODY for `nothing` was not enough either: the old rows were left
+   *     orphaned in `<body>` and the next open painted a SECOND catalogue beside them (14 rows for
+   *     7 articles, three flagged as already-added inside a course with no choices). Lit updates
+   *     the row list happily while the modal is presented — 7 to 1 to 7 across a search, measured;
+   *     what it does not survive is the subtree appearing and disappearing under Ionic's feet.
+   *     It is rendered from `render()` and not from the builder for the same reason: leaving the
+   *     menu would remove it mid-animation.
+   */
+  private renderBulkPicker() {
+    const groupId = this.bulkFor;
+    const already = new Set((this.choices[groupId] ?? []).map((o) => `${o.source}:${o.source_ref}`));
+    const picked = new Set(this.bulkPicked);
+    const n = this.bulkPicked.length;
+    return html`<ion-modal data-test="bulk-picker" .isOpen=${Boolean(groupId)}
+      @ionModalDidDismiss=${() => this.closeBulk()}>
+      <ion-header class="ion-no-border">
+        <ion-toolbar>
+          <ion-title>${t('ui.bulkTitle')}</ion-title>
+          <ion-buttons slot="end">
+            <ion-button data-test="bulk-cancel" @click=${() => this.closeBulk()}>${t('ui.cancel')}</ion-button>
+          </ion-buttons>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="ion-padding">
+        <ion-searchbar data-test="bulk-search" .value=${this.bulkQuery}
+          placeholder=${t('ui.optionPickerPlaceholder')}
+          @ionInput=${(e: CustomEvent) => this.searchBulk(String((e.target as HTMLInputElement).value ?? ''))}></ion-searchbar>
+
+        ${this.catalogueError
+          ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.catalogueError}</ok-inline-feedback>`
+          : this.articles.length === 0
+            ? html`<p data-test="bulk-empty">${this.missingCatalogues.length
+                ? this.missingCatalogues.map((k) => t('ui.catalogueMissing', { module: t(k) })).join(' ')
+                : t('ui.catalogueEmpty')}</p>`
+            : html`<ion-list lines="full">
+                ${this.articles.map((a) => {
+                  const owned = already.has(a.value);
+                  return html`<ion-item data-test="bulk-row" data-ref=${a.value} data-already=${String(owned)}
+                    style=${owned ? 'opacity:.55' : ''}>
+                    <ion-checkbox
+                      .checked=${owned || picked.has(a.value)}
+                      aria-disabled=${String(owned)}
+                      @ionChange=${(e: CustomEvent) => this.tickBulk(a.value, owned, Boolean((e.target as HTMLInputElement).checked))}
+                    >${a.label}</ion-checkbox>
+                    <!-- Two catalogues in one list: which one a row comes from has to be readable,
+                         or a product and a service with the same name are the same row. -->
+                    <span slot="end">${owned
+                      ? t('ui.bulkAlready')
+                      : t(a.value.startsWith('service:') ? 'ui.sourceService' : 'ui.sourceProduct')}</span>
+                  </ion-item>`;
+                })}
+              </ion-list>`}
+
+        <!-- Blocked, never natively disabled: Ionic implements disabled as pointer-events:none, so
+             the tap dies and the reason with it. (No backticks in an HTML comment inside an html
+             tagged template: one would CLOSE the template and break the whole component.) -->
+        <ion-button class="ion-margin-top" expand="block" data-test="bulk-confirm"
+          data-blocked=${String(n === 0)} aria-disabled=${String(n === 0)}
+          style=${n === 0 ? 'opacity:.55' : ''}
+          @click=${() => this.confirmBulk()}
+        >${this.saving ? t('ui.saving') : t('ui.bulkAddCount', { n })}</ion-button>
+        ${this.bulkReason
+          ? html`<p data-test="bulk-blocked-reason" style="color:var(--ion-color-danger,#c5000f);font-size:.85rem;">${this.bulkReason}</p>`
+          : nothing}
+      </ion-content>
+    </ion-modal>`;
   }
 
   private renderCourseForm() {
@@ -1185,6 +1582,18 @@ export class ErpCombosMenus extends LitElement {
           </ok-inline-feedback>`
         : nothing}
 
+      <!-- A catalogue that FAILED, said out loud. Swallowed it looks exactly like an empty one. -->
+      ${this.catalogueError
+        ? html`<ok-inline-feedback data-test="catalogue-error" tone="danger" icon="alert-circle-outline">
+            ${this.catalogueError}
+          </ok-inline-feedback>`
+        : nothing}
+      ${this.taxCategoriesError
+        ? html`<ok-inline-feedback data-test="tax-categories-error" tone="danger" icon="alert-circle-outline">
+            ${this.taxCategoriesError}
+          </ok-inline-feedback>`
+        : nothing}
+
       <div class="builder-body">
         <div>
           <div class="card-head"><span class="title">${t('ui.coursesTitle')}</span></div>
@@ -1206,7 +1615,12 @@ export class ErpCombosMenus extends LitElement {
 
   render() {
     // No `<h2>`: the shell topbar paints the view title.
-    if (this.openCombo) return html`<div class="page">${this.renderBuilder(this.openCombo)}</div>`;
+    // The picker modal is rendered from HERE, in both views, and never from inside the builder:
+    // Ionic reparents it out of this shadow root, so a template that stops rendering it orphans a
+    // live overlay on the page instead of dismissing it.
+    if (this.openCombo) {
+      return html`<div class="page">${this.renderBuilder(this.openCombo)}</div>${this.renderBulkPicker()}`;
+    }
 
     return html`<div class="page">
       ${this.comboError ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.comboError}</ok-inline-feedback>` : nothing}
@@ -1245,7 +1659,7 @@ export class ErpCombosMenus extends LitElement {
       >
         ${this.renderComboForm()}
       </ok-data-table>
-    </div>`;
+    </div>${this.renderBulkPicker()}`;
   }
 }
 

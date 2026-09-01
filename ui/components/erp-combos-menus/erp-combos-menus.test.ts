@@ -589,6 +589,14 @@ describe('the UI rules already paid for in other modules', () => {
     at(el, 'save-option')!.click();
     await settle(el);
 
+    // The bulk picker and its refusal: every sentence in there only exists once it is opened.
+    (el.shadowRoot.querySelector('[data-test="bulk-add"]') as HTMLElement).click();
+    await settle(el);
+    at(el, 'bulk-confirm')!.click();
+    await settle(el);
+    at(el, 'bulk-cancel')!.click();
+    await settle(el);
+
     el.shadowRoot.querySelector('[data-test="back-to-menus"]')!.dispatchEvent(new MouseEvent('click'));
     await settle(el);
     type(el, 'supply-kind', 'goods');
@@ -1077,9 +1085,10 @@ const styleSheet = (el: Mounted): string => {
 
 describe('every control of the builder is a target a finger can hit', () => {
   /** The icon-only controls: no label to widen them, so they are the ones that collapse to 28. */
-  const ICON_ONLY = ['course-up', 'course-down', 'choice-up', 'choice-down', 'edit-choice', 'delete-choice'];
+  const ICON_ONLY = ['course-drag', 'course-up', 'course-down',
+    'choice-drag', 'choice-up', 'choice-down', 'edit-choice', 'delete-choice'];
   /** Controls WITH a label that share a row with the icon-only ones. Same row, same height. */
-  const LABELLED = ['edit-course', 'delete-course', 'back-to-menus', 'save-option'];
+  const LABELLED = ['edit-course', 'delete-course', 'back-to-menus', 'save-option', 'bulk-add'];
 
   beforeEach(() => {
     threeChoices();
@@ -1367,5 +1376,513 @@ describe('money is written into the field in the language of the hub, and read b
     const price = at(el, 'combo-price')!;
     expect(price.getAttribute('type'), 'type=number empties itself in silence on an invalid value').toBe('text');
     expect(price.getAttribute('inputmode'), 'without inputmode=decimal a tablet offers the wrong keyboard').toBe('decimal');
+  });
+});
+
+// ── 11 · Reordering also by DRAGGING, without ever losing the arrows (combos#6) ────────────────
+//
+// The market barrido of pm#157 (11 products downloaded and checked one by one, written into
+// combos#6) says two things that look contradictory and are not:
+//
+//  * the arrows STAY. WCAG 2.2 SC 2.5.7 (AA) is literal — «all functionality that uses a dragging
+//    movement for operation can be achieved by a single pointer without dragging» — and
+//    reordering by drag alone is failure F108 by name, with technique G219 blessing step-wise
+//    arrows as the fix. The note that kills the "keyboard is enough" defence: «this requirement is
+//    separate from keyboard accessibility because people using a touchscreen device may not use a
+//    physical keyboard». Our users are on a tablet.
+//  * the HANDLE is what everybody ships as the affordance: Lightspeed K-Series (equal sign),
+//    Square (drag handle), Toast (six dots), Odoo (`widget="handle"`). Shopify sends both, drag
+//    plus «Move → to position N».
+//
+// So the handle is added NEXT TO the arrows, never instead of them.
+//
+// 🔴 WHAT THESE TESTS DO NOT PROVE. happy-dom does no layout and dispatches no real gesture: a
+// green here is NOT evidence that a finger can drag on an iPad. What is pinned here is the
+// contract that makes it possible — the handle exists, it is the only thing that swallows the
+// scroll gesture (`touch-action:none`), the arithmetic that turns a pointer position into a
+// landing slot, and the fact that a drop writes exactly the same positions an arrow would. The
+// gesture itself is measured in a browser and written into the PR.
+
+/** Gives `rows` boxes: happy-dom does no layout, so every rect it returns is zero. */
+function layout(rows: Element[], height = 44): void {
+  rows.forEach((row, i) => {
+    (row as HTMLElement).getBoundingClientRect = () => ({
+      top: i * height, bottom: i * height + height, height,
+      left: 0, right: 0, width: 0, x: 0, y: i * height, toJSON: () => ({}),
+    }) as DOMRect;
+  });
+}
+
+/** A pointer event happy-dom can carry: only `clientY` and `pointerId` are read. */
+function pointer(type: string, clientY: number): Event {
+  const e = new Event(type, { bubbles: true, cancelable: true });
+  Object.assign(e, { clientY, pointerId: 1 });
+  return e;
+}
+
+/** Drags `handle` down to the middle of slot `slot`, releasing there. */
+async function dragTo(el: Mounted, handle: HTMLElement, rows: Element[], slot: number): Promise<void> {
+  layout(rows);
+  const y = slot * 44 + 22;
+  handle.dispatchEvent(pointer('pointerdown', 0));
+  await settle(el);
+  window.dispatchEvent(pointer('pointermove', y));
+  await settle(el);
+  window.dispatchEvent(pointer('pointerup', y));
+  await settle(el);
+}
+
+/**
+ * Makes the bench write the COURSES, the way `persistChoices` does for the choices. Without it
+ * `loadCourses` answers the declared order again and every assertion about a course that moved is
+ * vacuously false — which is exactly how this test caught itself the first time it ran.
+ */
+function persistCourses(): void {
+  const client = (globalThis as Record<string, any>).erplora;
+  const record = client.command;
+  client.command = async (name: string, payload: Record<string, unknown>) => {
+    await record(name, payload);
+    if (name === 'combos.groups.update') {
+      groups = groups.map((g) => (g.group_id === payload.group_id
+        ? { ...g, sort_order: Number(payload.sort_order ?? 0) }
+        : g));
+    }
+    return {};
+  };
+}
+
+describe('a course and a choice can also be dragged, and the arrows survive it', () => {
+  beforeEach(() => {
+    threeChoices();
+    persistChoices();
+    persistCourses();
+  });
+
+  it('every choice row carries a drag handle NEXT TO its arrows, not instead of them', async () => {
+    const el = await mount();
+    await openMenu(el);
+    for (const id of ['o1', 'o2', 'o3']) {
+      expect(inRow(el, id, 'choice-drag'), `«${id}» has no drag handle: the affordance every product ships`).toBeTruthy();
+      expect(inRow(el, id, 'choice-up'), `«${id}» lost its arrow: dragging alone is WCAG 2.2 F108`).toBeTruthy();
+      expect(inRow(el, id, 'choice-down'), `«${id}» lost its arrow: dragging alone is WCAG 2.2 F108`).toBeTruthy();
+    }
+  });
+
+  it('every course carries the same handle, and keeps its arrows too', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const course = el.shadowRoot.querySelector('[data-test="course"][data-group-id="g1"]')!;
+    expect(course.querySelector('[data-test="course-drag"]'), 'a course cannot be dragged').toBeTruthy();
+    expect(course.querySelector('[data-test="course-up"]'), 'the course arrows were replaced by the handle').toBeTruthy();
+  });
+
+  // 🔴 The one line that decides whether the gesture works at all on a touch screen, and the one
+  // that must NOT be anywhere else: `touch-action:none` on the row or the list would kill the
+  // page scroll on a tablet, which is a far worse defect than the one being fixed.
+  it('the scroll gesture is swallowed by the HANDLE only, never by the row or the list', async () => {
+    const el = await mount();
+    const css = styleSheet(el);
+    const handle = /\.drag-handle(?:[^{]*)\{([^}]*)\}/.exec(css);
+    expect(handle, 'there is no rule for the handle at all').toBeTruthy();
+    expect(/touch-action:\s*none/.test(handle![1]),
+      'without touch-action:none the browser scrolls the page instead of starting the drag').toBe(true);
+    // Ionic paints the tappable box INSIDE its own shadow root; the host alone is not the target.
+    expect(/\.drag-handle::part\(native\)[^{]*\{[^}]*touch-action:\s*none/.test(css),
+      'only the host swallows the gesture: the inner button Ionic paints still scrolls the page').toBe(true);
+    for (const sel of ['.choices li', '.builder-body', '.card']) {
+      const rule = new RegExp(`\\${sel.replace(/^\./, '.')}\\s*\\{([^}]*)\\}`).exec(css);
+      if (rule) {
+        expect(/touch-action:\s*none/.test(rule[1]),
+          `\`${sel}\` swallows the scroll gesture: the builder cannot be scrolled on a tablet`).toBe(false);
+      }
+    }
+  });
+
+  it('the handle is a finger-sized target like every other control of the row (combos#4)', async () => {
+    const el = await mount();
+    await openMenu(el);
+    expect(inRow(el, 'o1', 'choice-drag')!.classList.contains('icon-btn'),
+      'the handle keeps whatever size Ionic gives it: 28 px, next to four 44 px neighbours').toBe(true);
+  });
+
+  // The arithmetic, alone, because it is the only part a DOM-less test CAN prove.
+  it('the landing slot is the one whose middle the pointer has passed', async () => {
+    const { dropIndexAt } = await import('./erp-combos-menus');
+    const boxes = [{ top: 0, height: 40 }, { top: 40, height: 40 }, { top: 80, height: 40 }];
+    expect(dropIndexAt(-100, boxes, 1), 'dragged above the list: it should land first').toBe(0);
+    expect(dropIndexAt(1000, boxes, 1), 'dragged below the list: it should land last').toBe(2);
+    expect(dropIndexAt(10, boxes, 2), 'still in the top half of the first slot').toBe(0);
+    expect(dropIndexAt(50, boxes, 0), 'the top half of the second slot is still the second').toBe(1);
+    expect(dropIndexAt(70, boxes, 0), 'past the middle of the second slot it belongs to the third').toBe(2);
+    expect(dropIndexAt(5, [], 0), 'an empty list cannot move anything').toBe(0);
+  });
+
+  it('dropping a choice on another slot writes the positions of everything it displaced', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const rows = [...el.shadowRoot.querySelectorAll('[data-test="course"][data-group-id="g1"] [data-test="choice"]')];
+    await dragTo(el, inRow(el, 'o1', 'choice-drag')!, rows, 2);
+
+    expect(choiceOrder(el), 'the drop did not move the choice').toEqual(['o2', 'o3', 'o1']);
+    const writes = commands.filter((c) => c.name.startsWith('combos.options.'));
+    expect(writes.map((c) => c.name), 'reordering withdraws and re-adds instead of updating')
+      .toEqual(['combos.options.update', 'combos.options.update', 'combos.options.update']);
+    expect(writes.map((c) => [c.payload.option_id, c.payload.sort_order]).sort(),
+      'a row that changed position was left with its old sort_order').toEqual([['o1', 2], ['o2', 0], ['o3', 1]]);
+    expect(writes.every((c) => typeof c.payload.source_ref === 'string' && c.payload.source_ref !== ''),
+      'the reorder update drops the reference, which `option_update.sql` would then blank').toBe(true);
+  });
+
+  it('dropping a course on another slot does the same for the courses', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const courses = [...el.shadowRoot.querySelectorAll('[data-test="course"]')];
+    const handle = courses[1].querySelector('[data-test="course-drag"]') as HTMLElement;
+    await dragTo(el, handle, courses, 0);
+
+    expect([...el.shadowRoot.querySelectorAll('[data-test="course"]')].map((c) => c.getAttribute('data-group-id')),
+      'the course did not move').toEqual(['g2', 'g1']);
+    const writes = commands.filter((c) => c.name === 'combos.groups.update');
+    expect(writes.map((c) => [c.payload.group_id, c.payload.sort_order]).sort(),
+      'the courses that swapped were not both written').toEqual([['g1', 1], ['g2', 0]]);
+  });
+
+  it('dropping a row where it started writes nothing at all', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const rows = [...el.shadowRoot.querySelectorAll('[data-test="course"][data-group-id="g1"] [data-test="choice"]')];
+    await dragTo(el, inRow(el, 'o2', 'choice-drag')!, rows, 1);
+
+    expect(choiceOrder(el), 'a drop on its own slot moved something').toEqual(['o1', 'o2', 'o3']);
+    expect(commands.filter((c) => c.name.startsWith('combos.options.')),
+      'a drop that changed nothing still wrote to the database').toEqual([]);
+  });
+
+  it('a cancelled drag puts the row back where it was, without writing', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const rows = [...el.shadowRoot.querySelectorAll('[data-test="course"][data-group-id="g1"] [data-test="choice"]')];
+    layout(rows);
+    inRow(el, 'o1', 'choice-drag')!.dispatchEvent(pointer('pointerdown', 0));
+    await settle(el);
+    window.dispatchEvent(pointer('pointermove', 110));
+    await settle(el);
+    expect(choiceOrder(el), 'the drag gives no feedback: the row does not follow the finger').toEqual(['o2', 'o3', 'o1']);
+    window.dispatchEvent(pointer('pointercancel', 110));
+    await settle(el);
+
+    expect(choiceOrder(el), 'a cancelled drag left the list reordered on screen and not on the server')
+      .toEqual(['o1', 'o2', 'o3']);
+    expect(commands.filter((c) => c.name.startsWith('combos.options.')), 'a cancelled drag wrote anyway').toEqual([]);
+  });
+
+  it('a failed drop is SAID and the screen goes back to the truth on the server', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const rows = [...el.shadowRoot.querySelectorAll('[data-test="course"][data-group-id="g1"] [data-test="choice"]')];
+    (globalThis as Record<string, any>).erplora.command = async () => { throw new Error(''); };
+    await dragTo(el, inRow(el, 'o1', 'choice-drag')!, rows, 2);
+
+    expect(el.shadowRoot.querySelector('ok-inline-feedback[tone="danger"]'),
+      'the drop failed in silence and the screen looks reordered').toBeTruthy();
+    expect(translated, 'a rejection with no sentence of its own is shown raw').toContain('ui.errSaveOption');
+    expect(choiceOrder(el), 'the screen kept an order the server never accepted').toEqual(['o1', 'o2', 'o3']);
+  });
+
+  it('without the manage permission there is no handle either', async () => {
+    (globalThis as Record<string, any>).erplora.hasPermission = (p: string) => p !== 'combos.manage_combo';
+    const el = await mount();
+    await openMenu(el);
+    expect(inRow(el, 'o1', 'choice-drag'), 'a read-only user is offered a drag handle').toBeNull();
+    expect(el.shadowRoot.querySelector('[data-test="course-drag"]'), 'a read-only user can reorder the courses').toBeNull();
+  });
+});
+
+// ── 12 · Articles are added in BULK, the way every verified TPV does it (combos#6) ─────────────
+//
+// From the same barrido: the frontier is not catalogue size, it is TPV vs ERP. Every verified
+// hospitality TPV ships bulk add — Lightspeed K-Series (pop-up with filter + checkboxes and a
+// button whose LABEL CARRIES THE COUNT), Toast (typeahead + checkboxes), Square (checkboxes over
+// articles or whole categories), WooCommerce Composite — and the ones that ship one line at a
+// time are exactly the ones generating the complaints: Odoo's «keying it in 1 line at a time is
+// going to take too long», Square's «VERY inconvenient to have to select each modifier inside
+// each item», with a moderator confirming over ~100 articles that «this cannot be bulk edited».
+//
+// So: a modal, server-side search (both catalogues paginate at 50 — a browser-side filter over a
+// first page hides the rest, the hub#650 hole), one checkbox per row, and a primary button that
+// says how many are going in. The supplement is NOT asked here: it is the exception, and it is set
+// afterwards by editing the row, which combos#1 made possible without losing the position.
+
+/** Opens the bulk picker of course `groupId`. */
+async function openBulk(el: Mounted, groupId = 'g1'): Promise<void> {
+  const course = el.shadowRoot.querySelector(`[data-test="course"][data-group-id="${groupId}"]`)!;
+  (course.querySelector('[data-test="bulk-add"]') as HTMLElement).click();
+  await settle(el);
+}
+
+/** The row of `ref` inside the open bulk picker. */
+const bulkRow = (el: Mounted, ref: string) =>
+  el.shadowRoot.querySelector(`[data-test="bulk-row"][data-ref="${ref}"]`) as HTMLElement | null;
+
+/** Ticks the row of `ref` the way ion-checkbox reports it. */
+async function tick(el: Mounted, ref: string, checked = true): Promise<void> {
+  const box = bulkRow(el, ref)!.querySelector('ion-checkbox') as HTMLElement & { checked?: boolean };
+  box.checked = checked;
+  box.dispatchEvent(new CustomEvent('ionChange', { detail: { checked } }));
+  await settle(el);
+}
+
+describe('several articles are added to a course in one go', () => {
+  // ONE choice, not three: `threeChoices` puts p1, p2 and s1 in the course, which is the WHOLE
+  // bench catalogue, so every row of the picker would come up already-added and the section would
+  // pass by proving nothing.
+  beforeEach(() => {
+    persistChoices();
+  });
+
+  it('each course offers adding SEVERAL articles, not only one at a time', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const course = el.shadowRoot.querySelector('[data-test="course"][data-group-id="g1"]')!;
+    expect(course.querySelector('[data-test="bulk-add"]'),
+      'the only way in is one article at a time: the complaint every verified TPV answers').toBeTruthy();
+  });
+
+  it('the picker lists both catalogues and says which one each article comes from', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    expect(bulkRow(el, 'product:p2'), 'a product of the catalogue is not offered').toBeTruthy();
+    expect(bulkRow(el, 'service:s1'), 'a service is not offered: a salon pack is made of services').toBeTruthy();
+    expect(translated, 'the two catalogues are mixed with no way to tell them apart').toContain('ui.sourceService');
+  });
+
+  // The whole reason it is a modal with its own search and not a dropdown: both catalogues
+  // paginate at 50, so a 500-article shop needs the SERVER to search.
+  it('typing in the picker asks the SERVER, it does not filter a first page of 50', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    queried = [];
+    const search = at(el, 'bulk-search')!;
+    search.value = 'solo';
+    search.dispatchEvent(new CustomEvent('ionInput', { detail: { value: 'solo' } }));
+    await settle(el);
+    expect(queried, 'the picker filtered in the browser: 450 of 500 articles stay unreachable')
+      .toContain('inventory.products.list');
+  });
+
+  it('the confirm button carries the COUNT of what is going in', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    await tick(el, 'product:p2');
+    await tick(el, 'service:s1');
+    expect(translated, 'the button does not say how many articles are going in').toContain('ui.bulkAddCount');
+    expect(words(at(el, 'bulk-confirm')), 'the count is not in the label: the button says the same with 1 and with 40')
+      .toContain('2');
+  });
+
+  it('confirming adds every ticked article, appended after the ones already there', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    await tick(el, 'product:p2');
+    await tick(el, 'service:s1');
+    at(el, 'bulk-confirm')!.click();
+    await settle(el);
+
+    const created = commands.filter((c) => c.name === 'combos.options.create');
+    expect(created.length, 'the articles were not added in one go').toBe(2);
+    expect(created.map((c) => [c.payload.source, c.payload.source_ref, c.payload.sort_order]),
+      'the new choices did not land after the one already there, in the order they were picked')
+      .toEqual([['product', 'p2', 1], ['service', 's1', 2]]);
+    expect(created.every((c) => c.payload.price_delta === 0),
+      'a bulk add invented a supplement nobody typed').toBe(true);
+    expect(choiceOrder(el).length, 'the course does not show the articles that were just added').toBe(3);
+  });
+
+  it('an article the course already offers cannot be ticked: the index would refuse it', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    const already = bulkRow(el, 'product:p1')!;
+    expect(already, 'the article already in the course vanished from the picker instead of being explained').toBeTruthy();
+    expect(already.getAttribute('data-already'),
+      '`ux_combos_choice_option` refuses it and the screen offers it anyway: a unique violation instead of a sentence')
+      .toBe('true');
+    expect((already.querySelector('ion-checkbox') as HTMLElement).getAttribute('aria-disabled'),
+      'the row can still be ticked').toBe('true');
+    expect(translated, 'nothing says WHY it cannot be picked again').toContain('ui.bulkAlready');
+
+    // 🔴 The aria is only the ANNOUNCEMENT. Without this the guard is decorative: dropping the
+    // refusal from the handler left every assertion above green while the row went into the batch
+    // anyway, straight into a unique violation.
+    await tick(el, 'product:p1');
+    expect(words(at(el, 'bulk-confirm')), 'a row already in the course was counted in anyway').toContain('0');
+    at(el, 'bulk-confirm')!.click();
+    await settle(el);
+    expect(commands.filter((c) => c.name === 'combos.options.create'),
+      'the tap on an already-added row put it in the batch: `ux_combos_choice_option` refuses it').toEqual([]);
+  });
+
+  it('confirming with nothing ticked writes nothing and ANSWERS, it is not natively disabled', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    const confirm = at(el, 'bulk-confirm')!;
+    expect(confirm.getAttribute('aria-disabled'), 'the empty picker pretends it can add something').toBe('true');
+    expect(confirm.hasAttribute('disabled'), 'native `disabled` swallows the tap and the reason with it').toBe(false);
+    confirm.click();
+    await settle(el);
+    expect(commands.filter((c) => c.name === 'combos.options.create'), 'it added nothing and wrote anyway').toEqual([]);
+    expect(at(el, 'bulk-blocked-reason'), 'the tap died without saying why').toBeTruthy();
+  });
+
+  it('a failure while adding is SAID, and what did land is reloaded from the server', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    await tick(el, 'product:p2');
+    (globalThis as Record<string, any>).erplora.command = async () => { throw new Error(''); };
+    at(el, 'bulk-confirm')!.click();
+    await settle(el);
+
+    expect(translated, 'a rejection with no sentence of its own is shown raw').toContain('ui.errSaveOption');
+    expect(el.shadowRoot.querySelector('ok-inline-feedback[tone="danger"]'),
+      'the bulk add failed in silence and the screen looks saved').toBeTruthy();
+    expect(choiceOrder(el), 'the screen shows choices the server never accepted').toEqual(['o1']);
+  });
+
+  it('the picker closes and forgets what was ticked once it is used', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    await tick(el, 'product:p2');
+    at(el, 'bulk-confirm')!.click();
+    await settle(el);
+    expect((el.shadowRoot.querySelector('ion-modal') as HTMLElement & { isOpen?: boolean }).isOpen,
+      'the picker stayed open after adding').toBe(false);
+    await openBulk(el);
+    expect(words(at(el, 'bulk-confirm')), 'reopening the picker brought back the previous ticks').toContain('0');
+  });
+
+  it('cancelling adds nothing and forgets the ticks too', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    await tick(el, 'product:p2');
+    at(el, 'bulk-cancel')!.click();
+    await settle(el);
+    expect(commands.filter((c) => c.name === 'combos.options.create'), 'cancelling added the articles anyway').toEqual([]);
+    await openBulk(el);
+    expect(words(at(el, 'bulk-confirm')), 'the cancelled ticks came back').toContain('0');
+  });
+
+  it('with no catalogue installed the picker SAYS so instead of looking like an empty catalogue', async () => {
+    notInstalled = new Set(['inventory.products.list', 'services.services.list']);
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    expect(el.shadowRoot.querySelector('[data-test="bulk-empty"]'),
+      'the picker shows a blank list, which reads as "you have no articles"').toBeTruthy();
+    expect(translated, 'the absence of the owner module is not said in words').toContain('ui.catalogueMissing');
+  });
+
+  it('a catalogue that BREAKS is reported, not swallowed into an empty list', async () => {
+    // A bare rejection, the way a transport failure arrives: `domainErrorText` shows the message
+    // when there is one, so only an empty one proves the screen has a sentence of its own.
+    const client = (globalThis as Record<string, any>).erplora;
+    const real = client.queryOptional;
+    client.queryOptional = async (name: string, params?: Record<string, unknown>) => {
+      if (name === 'inventory.products.list') throw new Error('');
+      return real(name, params);
+    };
+    const el = await mount();
+    await openMenu(el);
+    expect(el.shadowRoot.querySelector('[data-test="catalogue-error"]'),
+      'a broken catalogue looks exactly like an empty one').toBeTruthy();
+    expect(translated, 'the failure is shown as the raw exception').toContain('ui.errLoadCatalogue');
+  });
+
+  // 🔴 THE MODAL LEAVES THE SHADOW ROOT. Ionic reparents `ion-modal` to `<body>` when it presents,
+  // so this component's stylesheet does NOT reach anything inside it — the `[data-blocked]` and
+  // `[data-already]` rules that dim a blocked control everywhere else in the builder are a no-op in
+  // here. Measured in Chromium on the built bundle: the confirm button came up as a full-strength
+  // primary that refuses to do anything. What is inside the picker has to carry its own dimming.
+  it('the picker is self-styled: the modal leaves the shadow root, so its blocked look is inline', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    expect(at(el, 'bulk-confirm')!.getAttribute('style') ?? '',
+      'the blocked confirm button relies on a stylesheet that does not reach a reparented modal')
+      .toMatch(/opacity/);
+    expect(bulkRow(el, 'product:p1')!.getAttribute('style') ?? '',
+      'a row that cannot be ticked looks exactly like one that can').toMatch(/opacity/);
+
+    await tick(el, 'product:p2');
+    expect(at(el, 'bulk-confirm')!.getAttribute('style') ?? '',
+      'the button stays dimmed once it CAN add something').not.toMatch(/opacity/);
+  });
+
+  // 🔴 FOUND IN CHROMIUM ON THE BUILT BUNDLE, NOT HERE. Rendering the modal only while it is open
+  // left it FROZEN ON SCREEN after a confirmed bulk add — still saying «Guardando…», still holding
+  // its ticks, with the course behind it already updated. Ionic REPARENTS `ion-modal` to `<body>`
+  // when it presents, so taking it out of the Lit template takes out nothing: the element is no
+  // longer Lit's to remove, and nothing ever dismisses it. The element has to STAY in the template
+  // and be driven by `isOpen` — the same shape `services` uses for its own modals.
+  it('the modal element stays in the template and is driven by isOpen, never removed', async () => {
+    const el = await mount();
+    await openMenu(el);
+    const modal = () => el.shadowRoot.querySelector('ion-modal') as (HTMLElement & { isOpen?: boolean }) | null;
+    expect(modal(), 'the modal only exists while it is open: closing it orphans it in <body>').toBeTruthy();
+    expect(modal()!.isOpen, 'the picker comes up already open').toBe(false);
+
+    await openBulk(el);
+    expect(modal()!.isOpen, 'opening the picker did not open the modal').toBe(true);
+
+    at(el, 'bulk-cancel')!.click();
+    await settle(el);
+    expect(modal(), 'closing the picker removed the element instead of dismissing it').toBeTruthy();
+    expect(modal()!.isOpen, 'the modal stays open after the picker was closed').toBe(false);
+  });
+
+  // 🔴 THE SECOND HALF OF THE SAME TRAP, and it cost a second measurement to find. Swapping the
+  // modal BODY for `nothing` on close is not free either: with the element sitting in `<body>`
+  // mid-dismiss, the old rows were left ORPHANED there, and the next open painted a SECOND set
+  // beside them — 14 rows for a 7-article catalogue, three of them flagged «already in this
+  // course» inside a course with no choices at all. Measured in Chromium on the built bundle.
+  //
+  // So the body is rendered UNCONDITIONALLY and only `isOpen` moves — the same shape `services`
+  // uses. Lit updates the row list happily while the modal is presented (7 -> 1 -> 7 on a search,
+  // also measured); what it cannot survive is the whole subtree appearing and disappearing.
+  it('the modal keeps its body while closed: swapping it for nothing orphans the old rows', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    at(el, 'bulk-cancel')!.click();
+    await settle(el);
+    expect((el.shadowRoot.querySelector('ion-modal') as HTMLElement & { isOpen?: boolean }).isOpen,
+      'the picker is still open').toBe(false);
+    expect(at(el, 'bulk-confirm'),
+      'the modal body is swapped for `nothing` when it closes: in a browser that orphans the rows in <body> and the next open stacks a second catalogue on top')
+      .toBeTruthy();
+  });
+
+  it('leaving the menu closes the picker instead of leaving it floating over the list', async () => {
+    const el = await mount();
+    await openMenu(el);
+    await openBulk(el);
+    at(el, 'back-to-menus')!.click();
+    await settle(el);
+    const modal = el.shadowRoot.querySelector('ion-modal') as (HTMLElement & { isOpen?: boolean }) | null;
+    expect(modal?.isOpen ?? false, 'the picker of a menu that was left behind is still open over the list').toBe(false);
+  });
+
+  it('without the manage permission there is no bulk add', async () => {
+    (globalThis as Record<string, any>).erplora.hasPermission = (p: string) => p !== 'combos.manage_combo';
+    const el = await mount();
+    await openMenu(el);
+    expect(el.shadowRoot.querySelector('[data-test="bulk-add"]'), 'a read-only user is offered a bulk add').toBeNull();
   });
 });
