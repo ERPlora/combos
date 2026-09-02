@@ -617,6 +617,57 @@ describe('the UI rules already paid for in other modules', () => {
       'these keys have no Spanish: the hub is used in Spanish').toEqual([]);
   });
 
+  // 🔴 combos#14 — TERMINOLOGY GUARD over the Spanish catalogue, and the ONE place in this file
+  // where asserting on PROSE is the right tool rather than the wrong one. Everywhere else these
+  // tests assert on the i18n KEY precisely so that rewording a sentence cannot break them; here the
+  // word itself IS the contract with the trade.
+  //
+  // `course` is correct in English and English is the source language (ADR-0055/0199), so `en` does
+  // not move. Its literal Spanish translation, «curso», is what you STUDY. A Spanish carta has
+  // «primer plato», «segundo plato», «postre» — and the hostelero building his menú del día reads
+  // this screen more than any other. Only the `es` sentences change: the keys stay `coursesTitle`,
+  // `newCourse`, `deleteCourseConfirm`… so nothing with an external contract moves (no column, no
+  // event, no published i18n key).
+  //
+  // The guard is permanent because the mistake is a PATTERN and not a point: any new `es` string
+  // about a menu step can bring it back, and combos#6 already did — `bulkTitle` and `bulkAlready`
+  // were deliberately written with «curso» to match what the rest of the screen was saying.
+  it('the Spanish catalogue never calls a menu step «curso»: in a carta that is a «plato»', () => {
+    const offendersIn = (catalogue: unknown): string[] => {
+      const out: string[] = [];
+      const walk = (node: unknown, path: string): void => {
+        if (typeof node === 'string') {
+          // «en curso» is a different word doing a different job («ongoing») and is legitimate
+          // Spanish, so it is taken out before looking: only the NOUN is banned.
+          if (/\bcursos?\b/i.test(node.replace(/\ben curso\b/gi, ''))) out.push(`${path} → «${node}»`);
+          return;
+        }
+        if (node && typeof node === 'object') {
+          for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+            walk(v, path ? `${path}.${k}` : k);
+          }
+        }
+      };
+      walk(catalogue, '');
+      return out;
+    };
+
+    // 🔴 THE CONTROL POSITIVE COMES FIRST. A guard whose empty list could just as well mean «it
+    // never looked» proves nothing, and this repo has collected eight convincing false negatives in
+    // a single day. It has to catch the banned word, let «en curso» through, and not trip on the
+    // words that merely CONTAIN it.
+    expect(offendersIn({ ui: { a: 'Añadir un curso', b: 'Cargando los cursos…' } }),
+      'the guard does not catch the very word it exists to ban').toHaveLength(2);
+    expect(offendersIn({ ui: { a: 'El pedido está en curso.' } }),
+      '«en curso» is legitimate Spanish and is not a menu step').toEqual([]);
+    expect(offendersIn({ ui: { a: 'Ganó el concurso con su discurso.' } }),
+      'the guard trips on words that merely contain «curso»').toEqual([]);
+
+    expect(offendersIn(esLocale),
+      'these Spanish strings call a menu step «curso», which is what you study, not what you eat')
+      .toEqual([]);
+  });
+
   it('no visible string is hardcoded: they all go through the module catalogue', async () => {
     const el = await mount();
     await openMenu(el);
