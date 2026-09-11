@@ -203,8 +203,13 @@ const PASSED_COMPUTED = /(?<![\w-])testid:\s*`([^`]*)`/g;
  * `data-testid` and nothing else, so `data-test` is a hook the robot cannot reach.
  */
 const DENIED_ATTR = /(?<![\w-])data-test(?!id\s*=)[\w-]*\s*=/g;
-/** Every way the attribute is written, so rule 4 can reject the ones the rules above cannot read. */
-const SPELLING = /(?<![\w-])(v-bind:data-testid|:data-testid|data-testid)\s*=\s*(\$\{|"|'|[^\s>])/g;
+/**
+ * Every way the attribute is written, so rule 4 can reject the ones the rules above cannot read.
+ * The SEPARATOR is captured on purpose: `data-testid = "…"` is legal HTML and Lit paints it, but
+ * the contract reader only matches `data-testid="…"`, so a hook written that way is a hook no rule
+ * can read the NAME of — hooked for rule 1, absent from rule 2, renameable in silence (invoice#77).
+ */
+const SPELLING = /(?<![\w-])(v-bind:data-testid|:data-testid|data-testid)(\s*=\s*)(\$\{|"|'|[^\s>])/g;
 const KEBAB = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 /**
  * A reusable control's pass-through (`data-testid=${opts.testid}`): it has no fixed head ON PURPOSE
@@ -387,7 +392,18 @@ function computedHooks(
   return [...fromAttribute, ...fromHost];
 }
 
-const hasTestid = (tag: string): boolean => /(?:^|\s)data-testid\s*=/.test(tag);
+/**
+ * Read EXACTLY the two spellings the contract reader can read (`="…"` and `=${…}`), never
+ * `\s*=\s*`: the day the two disagree is the day a control counts as hooked with a name nothing
+ * declares, which is rule 2 switched off for that control alone.
+ */
+const hasTestid = (tag: string): boolean => /(?:^|\s)data-testid=(?:"|\$\{)/.test(tag);
+
+/** The offending spellings of `source`, as `line: text`. Rule 4 and its fixtures share this. */
+const spellingOffenders = (source: string, name: string): string[] =>
+  matches(SPELLING, source)
+    .filter((m) => !(m[1] === 'data-testid' && m[2] === '=' && (m[3] === '"' || m[3] === '${')))
+    .map((m) => `${name}:${lineOf(source, m.index)}: ${m[0].trim()}`);
 
 const uncoveredControls = (markup: string): string[] =>
   matches(CONTROL_OPEN, markup)
@@ -396,7 +412,7 @@ const uncoveredControls = (markup: string): string[] =>
 
 const tablesWithoutNamespace = (markup: string): string[] =>
   matches(TABLE_OPEN, markup)
-    .filter((m) => !/(?:^|\s)testid\s*=/.test(openTag(markup, m.index)))
+    .filter((m) => !/(?:^|\s)testid="/.test(openTag(markup, m.index)))
     .map((m) => `<ok-data-table> line ${lineOf(markup, m.index)}`);
 
 describe('data-testid — the module UI contract (combos#18)', () => {
@@ -476,18 +492,38 @@ describe('data-testid — the module UI contract (combos#18)', () => {
   });
 
   it('4 · the hook is written in ONE way: data-testid="…" or data-testid=${…}', () => {
-    const offenders: string[] = [];
-    for (const { name, source } of SWEPT) {
-      for (const m of matches(SPELLING, source)) {
-        const legal = m[1] === 'data-testid' && (m[2] === '"' || m[2] === '${');
-        if (!legal) offenders.push(`${name}:${lineOf(source, m.index)}: ${m[0].trim()}`);
-      }
-    }
+    const offenders = SWEPT.flatMap(({ name, source }) => spellingOffenders(source, name));
     expect(
       offenders,
       'this module is Lit: `:data-testid`/`v-bind:data-testid` paint an attribute with that literal ' +
         'name, which getByTestId does not resolve, and single quotes are invisible to the rules above',
     ).toEqual([]);
+  });
+
+  /**
+   * Rules 3 and 4 sweep the REAL tree, so they only ever see the spellings somebody already typed:
+   * the day a new one arrives is the day the rule runs for the first time. These fixtures exercise
+   * the readers directly, and they pin what made the two of them DISAGREE — a hook written
+   * `data-testid = "…"`, with spaces around the `=`. HTML accepts it and Lit paints it, so rule 1
+   * counted the control as hooked; but the contract reader only ever matched `data-testid="…"`, so
+   * that name never entered the contract and renaming it was invisible to all five rules. Measured
+   * on invoice#77 and reproduced here before the fix.
+   */
+  it('4b · the two readers agree on what a hook is, including the spellings nobody typed yet', () => {
+    const fixtures: Array<{ tag: string; legal: boolean; hooked: boolean; name: string | null }> = [
+      { tag: '<ion-input data-testid="combos-x"></ion-input>', legal: true, hooked: true, name: 'combos-x' },
+      { tag: '<ion-input data-testid=${`combos-x-${id}`}></ion-input>', legal: true, hooked: true, name: null },
+      { tag: '<ion-input data-testid = "combos-x"></ion-input>', legal: false, hooked: false, name: null },
+      { tag: '<ion-input data-testid= "combos-x"></ion-input>', legal: false, hooked: false, name: null },
+      { tag: "<ion-input data-testid='combos-x'></ion-input>", legal: false, hooked: false, name: null },
+      { tag: '<ion-input :data-testid="combos-x"></ion-input>', legal: false, hooked: false, name: null },
+      { tag: '<ion-input v-bind:data-testid="combos-x"></ion-input>', legal: false, hooked: false, name: null },
+    ];
+    for (const f of fixtures) {
+      expect(spellingOffenders(f.tag, 'fixture').length === 0, `spelling of ${f.tag}`).toBe(f.legal);
+      expect(hasTestid(openTag(f.tag, 0)), `coverage reads ${f.tag}`).toBe(f.hooked);
+      expect(literalTestids(f.tag)[0] ?? null, `contract reads ${f.tag}`).toBe(f.name);
+    }
   });
 
   it('5 · every screen with a form is classified, and the pending list only shrinks', () => {
