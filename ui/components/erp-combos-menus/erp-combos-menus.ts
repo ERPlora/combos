@@ -489,8 +489,8 @@ export class ErpCombosMenus extends LitElement {
   /** The rows a drag of `kind` can land between, in the order they are painted. */
   private dragRows(kind: 'course' | 'choice', groupId: string): HTMLElement[] {
     const selector = kind === 'course'
-      ? '[data-test="course"]'
-      : `[data-test="course"][data-group-id="${groupId}"] [data-test="choice"]`;
+      ? 'section[data-testid^="combos-course-row-"]'
+      : `[data-testid="combos-course-row-${groupId}"] li[data-testid^="combos-choice-row-"]`;
     return [...this.renderRoot.querySelectorAll(selector)] as HTMLElement[];
   }
 
@@ -1219,11 +1219,11 @@ export class ErpCombosMenus extends LitElement {
    * `pointer-events:none`, so the tap dies and the reason lives in a `title` no tablet shows.
    */
   private blockingButton(opts: {
-    test: string; blocked: boolean; label: string; onClick: () => void; tone?: string;
+    testid: string; blocked: boolean; label: string; onClick: () => void; tone?: string;
   }) {
     return html`<ion-button
       size="small"
-      data-test=${opts.test}
+      data-testid=${opts.testid}
       data-tone=${opts.tone ?? 'primary'}
       data-blocked=${String(opts.blocked)}
       aria-disabled=${String(opts.blocked)}
@@ -1251,26 +1251,26 @@ export class ErpCombosMenus extends LitElement {
   private renderComboForm() {
     const editing = this.editing;
     const blockedKey = this.comboBlockedKey;
-    return html`<form slot="create" class="form" @submit=${(e: Event) => { e.preventDefault(); this.saveCombo(); }}>
+    return html`<form slot="create" class="form" data-testid="combos-form" @submit=${(e: Event) => { e.preventDefault(); this.saveCombo(); }}>
       <h3>${editing ? t('ui.editMenuTitle', { name: editing.name }) : t('ui.newMenuTitle')}</h3>
 
-      <ion-input mode="md" fill="outline" data-test="combo-name" label=${t('ui.fieldName')} label-placement="floating"
+      <ion-input mode="md" fill="outline" data-testid="combos-name" label=${t('ui.fieldName')} label-placement="floating"
         .value=${this.fName}
         @ionInput=${(e: CustomEvent) => (this.fName = String((e.target as HTMLInputElement).value ?? ''))}></ion-input>
 
-      <ion-input mode="md" fill="outline" data-test="combo-kitchen-name" label=${t('ui.fieldKitchenName')} label-placement="floating"
+      <ion-input mode="md" fill="outline" data-testid="combos-kitchen-name" label=${t('ui.fieldKitchenName')} label-placement="floating"
         .value=${this.fKitchenName}
         @ionInput=${(e: CustomEvent) => (this.fKitchenName = String((e.target as HTMLInputElement).value ?? ''))}></ion-input>
       <p class="help">${t('ui.fieldKitchenNameHelp')}</p>
 
-      <ion-input mode="md" fill="outline" data-test="combo-price" type="text" inputmode="decimal"
+      <ion-input mode="md" fill="outline" data-testid="combos-price" type="text" inputmode="decimal"
         label=${t('ui.fieldPrice')} label-placement="floating" .value=${this.fPrice}
         @ionInput=${(e: CustomEvent) => (this.fPrice = String((e.target as HTMLInputElement).value ?? ''))}
         @ionBlur=${() => (this.fPrice = normaliseOnBlur(this.fPrice))}></ion-input>
       <p class="help">${t('ui.fieldPriceHelp')}</p>
 
       <!-- supply_kind is asked by what it MEANS: whoever fills it is a restaurateur, not an adviser. -->
-      <ion-select mode="md" fill="outline" data-test="supply-kind" label=${t('ui.supplyLabel')} label-placement="floating"
+      <ion-select mode="md" fill="outline" data-testid="combos-supply-kind" label=${t('ui.supplyLabel')} label-placement="floating"
         .value=${this.fSupplyKind}
         @ionChange=${(e: CustomEvent) => (this.fSupplyKind = String((e.target as HTMLSelectElement).value ?? 'service'))}>
         <ion-select-option value="service">${t('ui.supplyService')}</ion-select-option>
@@ -1282,16 +1282,16 @@ export class ErpCombosMenus extends LitElement {
         find out what goods does, which is the "discover it on the invoice" failure this screen
         exists to prevent. The choice is between two fiscal outcomes, so both are on the table.
       -->
-      <p class="help" data-test="supply-help-service" data-active=${String(this.fSupplyKind === 'service')}>
+      <p class="help" data-testid="combos-supply-help-service" data-active=${String(this.fSupplyKind === 'service')}>
         ${t('ui.supplyService')}: ${t('ui.supplyServiceHelp')}
       </p>
-      <p class="help" data-test="supply-help-goods" data-active=${String(this.fSupplyKind === 'goods')}>
+      <p class="help" data-testid="combos-supply-help-goods" data-active=${String(this.fSupplyKind === 'goods')}>
         ${t('ui.supplyGoods')}: ${t('ui.supplyGoodsHelp')}
       </p>
 
       <!-- Only a single supply needs a rate of its own: with goods each component brings one. -->
       ${this.fSupplyKind === 'service'
-        ? html`<ion-select mode="md" fill="outline" data-test="combo-tax-category" label=${t('ui.fieldTaxCategory')} label-placement="floating"
+        ? html`<ion-select mode="md" fill="outline" data-testid="combos-tax-category" label=${t('ui.fieldTaxCategory')} label-placement="floating"
             .value=${this.fTaxCategory}
             @ionChange=${(e: CustomEvent) => (this.fTaxCategory = String((e.target as HTMLSelectElement).value ?? ''))}>
             ${this.taxCategories.map((c) => html`<ion-select-option value=${c.key}>${c.display_name}</ion-select-option>`)}
@@ -1299,22 +1299,22 @@ export class ErpCombosMenus extends LitElement {
           <p class="help">${t('ui.fieldTaxCategoryHelp')}</p>`
         : nothing}
 
-      <ion-input mode="md" fill="outline" data-test="combo-order" type="number" min="0"
+      <ion-input mode="md" fill="outline" data-testid="combos-order" type="number" min="0"
         label=${t('ui.fieldOrder')} label-placement="floating" .value=${this.fSortOrder}
         @ionInput=${(e: CustomEvent) => (this.fSortOrder = String((e.target as HTMLInputElement).value ?? '0'))}></ion-input>
 
-      <ion-checkbox .checked=${this.fActive}
+      <ion-checkbox data-testid="combos-active" .checked=${this.fActive}
         @ionChange=${(e: CustomEvent) => (this.fActive = Boolean((e.target as HTMLInputElement).checked))}>${t('ui.fieldActive')}</ion-checkbox>
 
       ${this.blockingButton({
-        test: 'save-combo',
+        testid: 'combos-save',
         blocked: Boolean(blockedKey),
         label: this.saving ? t('ui.saving') : t('ui.save'),
         onClick: () => this.saveCombo(),
       })}
-      ${this.comboReason ? html`<p class="reason" data-test="combo-blocked-reason">${this.comboReason}</p>` : nothing}
-      ${this.comboError ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.comboError}</ok-inline-feedback>` : nothing}
-      ${editing ? html`<ion-button size="small" @click=${() => this.resetComboForm()}>${t('ui.cancel')}</ion-button>` : nothing}
+      ${this.comboReason ? html`<p class="reason" data-testid="combos-blocked-reason">${this.comboReason}</p>` : nothing}
+      ${this.comboError ? html`<ok-inline-feedback data-testid="combos-form-error" tone="danger" icon="alert-circle-outline">${this.comboError}</ok-inline-feedback>` : nothing}
+      ${editing ? html`<ion-button size="small" data-testid="combos-cancel" @click=${() => this.resetComboForm()}>${t('ui.cancel')}</ion-button>` : nothing}
     </form>`;
   }
 
@@ -1326,35 +1326,35 @@ export class ErpCombosMenus extends LitElement {
     return html`
       <div class="rule">${t('ui.optionsTitle')}</div>
       ${rows.length === 0
-        ? html`<p class="muted" data-test="choices-empty">${t('ui.optionsEmpty')}</p>`
+        ? html`<p class="muted" data-testid=${`combos-course-row-${course.group_id}-choices-empty`}>${t('ui.optionsEmpty')}</p>`
         : html`<ul class="choices">
-            ${rows.map((o, i) => html`<li data-test="choice" data-option-id=${o.option_id}
+            ${rows.map((o, i) => html`<li data-testid=${`combos-choice-row-${o.option_id}`} data-option-id=${o.option_id}
               data-editing=${String(this.editingChoice?.option_id === o.option_id)}
               data-dragging=${String(this.drag?.kind === 'choice' && this.drag.groupId === course.group_id && this.drag.at === i)}>
               <span class="name">${this.articleLabel(o)}</span>
               ${o.price_delta ? html`<span class="delta">${erplora().formatMoney(o.price_delta)}</span>` : nothing}
               ${manage
                 ? html`<span class="row-actions">
-                    <ion-button size="small" class="icon-btn drag-handle" data-test="choice-drag"
+                    <ion-button size="small" class="icon-btn drag-handle" data-testid=${`combos-choice-row-${o.option_id}-drag`}
                       aria-label=${t('ui.dragToReorder')}
                       @pointerdown=${(e: PointerEvent) => this.beginDrag(e, 'choice', course.group_id, o.option_id)}>
                       <ion-icon name="reorder-three-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" class="icon-btn" data-test="choice-up" aria-label=${t('ui.moveUp')}
+                    <ion-button size="small" class="icon-btn" data-testid=${`combos-choice-row-${o.option_id}-up`} aria-label=${t('ui.moveUp')}
                       data-blocked=${String(i === 0)} aria-disabled=${String(i === 0)}
                       @click=${() => this.moveChoice(o, -1)}>
                       <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" class="icon-btn" data-test="choice-down" aria-label=${t('ui.moveDown')}
+                    <ion-button size="small" class="icon-btn" data-testid=${`combos-choice-row-${o.option_id}-down`} aria-label=${t('ui.moveDown')}
                       data-blocked=${String(i === rows.length - 1)} aria-disabled=${String(i === rows.length - 1)}
                       @click=${() => this.moveChoice(o, 1)}>
                       <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" class="icon-btn" data-test="edit-choice" aria-label=${t('ui.optionEdit')}
+                    <ion-button size="small" class="icon-btn" data-testid=${`combos-choice-row-${o.option_id}-edit`} aria-label=${t('ui.optionEdit')}
                       @click=${() => this.startEditChoice(o)}>
                       <ion-icon name="create-outline" slot="icon-only"></ion-icon>
                     </ion-button>
-                    <ion-button size="small" class="icon-btn" data-test="delete-choice" aria-label=${t('ui.optionDelete')}
+                    <ion-button size="small" class="icon-btn" data-testid=${`combos-choice-row-${o.option_id}-delete`} aria-label=${t('ui.optionDelete')}
                       @click=${() => this.deleteChoice(o)}>
                       <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
                     </ion-button>
@@ -1365,7 +1365,7 @@ export class ErpCombosMenus extends LitElement {
 
       ${manage
         ? html`${editing
-            ? html`<p class="help" data-test="editing-choice" data-active="true">
+            ? html`<p class="help" data-testid=${`combos-course-row-${course.group_id}-editing-choice`} data-active="true">
                 ${t('ui.editingChoice', { article: this.articleLabel(editing) })}
               </p>`
             : nothing}
@@ -1373,29 +1373,29 @@ export class ErpCombosMenus extends LitElement {
             <!-- Typeahead over BOTH catalogues. The server searches, so a 500-article shop is
                  reachable; a first page of 50 filtered in the browser would hide the rest. -->
             <ok-combo
-              data-test="option-picker"
+              data-testid=${`combos-course-row-${course.group_id}-option-picker`}
               .options=${this.articles}
               .value=${draft.ref}
               .labels=${{ placeholder: t('ui.optionPickerPlaceholder'), empty: t('ui.catalogueEmpty') }}
               @ok-input=${(e: CustomEvent<{ query: string }>) => this.loadCatalogues(e.detail?.query ?? '')}
               @ok-change=${(e: CustomEvent<{ value: string }>) => this.patchDraft(course.group_id, { ref: e.detail?.value ?? '' })}
             ></ok-combo>
-            <ion-input mode="md" fill="outline" data-test="option-delta" type="text" inputmode="decimal"
+            <ion-input mode="md" fill="outline" data-testid=${`combos-course-row-${course.group_id}-option-delta`} type="text" inputmode="decimal"
               label=${t('ui.optionDelta')} label-placement="floating" .value=${draft.delta}
               @ionInput=${(e: CustomEvent) => this.patchDraft(course.group_id, { delta: String((e.target as HTMLInputElement).value ?? '') })}
               @ionBlur=${() => this.patchDraft(course.group_id, { delta: normaliseOnBlur(this.draft(course.group_id).delta) })}></ion-input>
             ${this.blockingButton({
-              test: 'save-option',
+              testid: `combos-course-row-${course.group_id}-option-save`,
               blocked: Boolean(this.optionBlockedKey(course.group_id)),
               label: editing ? (this.saving ? t('ui.saving') : t('ui.save')) : t('ui.optionAdd'),
               onClick: () => this.saveChoice(course.group_id),
             })}
             ${editing
-              ? html`<ion-button size="small" data-test="cancel-choice" @click=${() => this.cancelEditChoice()}>
+              ? html`<ion-button size="small" data-testid=${`combos-course-row-${course.group_id}-option-cancel`} @click=${() => this.cancelEditChoice()}>
                   ${t('ui.cancel')}
                 </ion-button>`
               : html`<!-- The other door in, and the one a real catalogue uses: several at once. -->
-                <ion-button size="small" data-test="bulk-add" @click=${() => this.openBulk(course.group_id)}>
+                <ion-button size="small" data-testid=${`combos-course-row-${course.group_id}-bulk-add`} @click=${() => this.openBulk(course.group_id)}>
                   <ion-icon name="add-outline" slot="start"></ion-icon>${t('ui.bulkAdd')}
                 </ion-button>`}
           </div>
@@ -1403,39 +1403,39 @@ export class ErpCombosMenus extends LitElement {
         : nothing}
 
       ${this.optionScope === course.group_id && this.optionReason
-        ? html`<p class="reason" data-test="option-blocked-reason">${this.optionReason}</p>` : nothing}
+        ? html`<p class="reason" data-testid=${`combos-course-row-${course.group_id}-option-blocked-reason`}>${this.optionReason}</p>` : nothing}
       ${this.optionScope === course.group_id && this.optionError
-        ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.optionError}</ok-inline-feedback>` : nothing}
+        ? html`<ok-inline-feedback data-testid=${`combos-course-row-${course.group_id}-option-error`} tone="danger" icon="alert-circle-outline">${this.optionError}</ok-inline-feedback>` : nothing}
     `;
   }
 
   private renderCourse(course: Course, index: number) {
     const manage = can('combos.manage_combo');
     const required = Number(course.min_choices ?? 0) >= 1;
-    return html`<section class="card" data-test="course" data-group-id=${course.group_id} data-required=${String(required)}
+    return html`<section class="card" data-testid=${`combos-course-row-${course.group_id}`} data-group-id=${course.group_id} data-required=${String(required)}
       data-dragging=${String(this.isDragging('course', index))}>
       <div class="card-head">
         <span class="title">${course.name}</span>
-        <span class="badge" data-test="course-rule">${this.courseRule(course)}</span>
+        <span class="badge" data-testid=${`combos-course-row-${course.group_id}-rule`}>${this.courseRule(course)}</span>
         ${manage
           ? html`
-            <ion-button size="small" class="icon-btn drag-handle" data-test="course-drag"
+            <ion-button size="small" class="icon-btn drag-handle" data-testid=${`combos-course-row-${course.group_id}-drag`}
               aria-label=${t('ui.dragToReorder')}
               @pointerdown=${(e: PointerEvent) => this.beginDrag(e, 'course', '', course.group_id)}>
               <ion-icon name="reorder-three-outline" slot="icon-only"></ion-icon>
             </ion-button>
-            <ion-button size="small" class="icon-btn" data-test="course-up" aria-label=${t('ui.moveUp')}
+            <ion-button size="small" class="icon-btn" data-testid=${`combos-course-row-${course.group_id}-up`} aria-label=${t('ui.moveUp')}
               data-blocked=${String(index === 0)} aria-disabled=${String(index === 0)}
               @click=${() => this.moveCourse(course, -1)}>
               <ion-icon name="arrow-up-outline" slot="icon-only"></ion-icon>
             </ion-button>
-            <ion-button size="small" class="icon-btn" data-test="course-down" aria-label=${t('ui.moveDown')}
+            <ion-button size="small" class="icon-btn" data-testid=${`combos-course-row-${course.group_id}-down`} aria-label=${t('ui.moveDown')}
               data-blocked=${String(index === this.courses.length - 1)} aria-disabled=${String(index === this.courses.length - 1)}
               @click=${() => this.moveCourse(course, 1)}>
               <ion-icon name="arrow-down-outline" slot="icon-only"></ion-icon>
             </ion-button>
-            <ion-button size="small" data-test="edit-course" @click=${() => this.startEditCourse(course)}>${t('ui.actionEdit')}</ion-button>
-            <ion-button size="small" data-tone="danger" data-test="delete-course" @click=${() => this.deleteCourse(course)}>${t('ui.actionDelete')}</ion-button>`
+            <ion-button size="small" data-testid=${`combos-course-row-${course.group_id}-edit`} @click=${() => this.startEditCourse(course)}>${t('ui.actionEdit')}</ion-button>
+            <ion-button size="small" data-tone="danger" data-testid=${`combos-course-row-${course.group_id}-delete`} @click=${() => this.deleteCourse(course)}>${t('ui.actionDelete')}</ion-button>`
           : nothing}
       </div>
       ${this.renderChoices(course)}
@@ -1469,33 +1469,33 @@ export class ErpCombosMenus extends LitElement {
     const already = new Set((this.choices[groupId] ?? []).map((o) => `${o.source}:${o.source_ref}`));
     const picked = new Set(this.bulkPicked);
     const n = this.bulkPicked.length;
-    return html`<ion-modal data-test="bulk-picker" .isOpen=${Boolean(groupId)}
+    return html`<ion-modal data-testid="combos-bulk-picker" .isOpen=${Boolean(groupId)}
       @ionModalDidDismiss=${() => this.closeBulk()}>
       <ion-header class="ion-no-border">
         <ion-toolbar>
           <ion-title>${t('ui.bulkTitle')}</ion-title>
           <ion-buttons slot="end">
-            <ion-button data-test="bulk-cancel" @click=${() => this.closeBulk()}>${t('ui.cancel')}</ion-button>
+            <ion-button data-testid="combos-bulk-cancel" @click=${() => this.closeBulk()}>${t('ui.cancel')}</ion-button>
           </ion-buttons>
         </ion-toolbar>
       </ion-header>
       <ion-content class="ion-padding">
-        <ion-searchbar data-test="bulk-search" .value=${this.bulkQuery}
+        <ion-searchbar data-testid="combos-bulk-search" .value=${this.bulkQuery}
           placeholder=${t('ui.optionPickerPlaceholder')}
           @ionInput=${(e: CustomEvent) => this.searchBulk(String((e.target as HTMLInputElement).value ?? ''))}></ion-searchbar>
 
         ${this.catalogueError
-          ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.catalogueError}</ok-inline-feedback>`
+          ? html`<ok-inline-feedback data-testid="combos-bulk-catalogue-error" tone="danger" icon="alert-circle-outline">${this.catalogueError}</ok-inline-feedback>`
           : this.articles.length === 0
-            ? html`<p data-test="bulk-empty">${this.missingCatalogues.length
+            ? html`<p data-testid="combos-bulk-empty">${this.missingCatalogues.length
                 ? this.missingCatalogues.map((k) => t('ui.catalogueMissing', { module: t(k) })).join(' ')
                 : t('ui.catalogueEmpty')}</p>`
             : html`<ion-list lines="full">
                 ${this.articles.map((a) => {
                   const owned = already.has(a.value);
-                  return html`<ion-item data-test="bulk-row" data-ref=${a.value} data-already=${String(owned)}
+                  return html`<ion-item data-testid=${`combos-bulk-row-${a.value}`} data-ref=${a.value} data-already=${String(owned)}
                     style=${owned ? 'opacity:.55' : ''}>
-                    <ion-checkbox
+                    <ion-checkbox data-testid=${`combos-bulk-row-${a.value}-pick`}
                       .checked=${owned || picked.has(a.value)}
                       aria-disabled=${String(owned)}
                       @ionChange=${(e: CustomEvent) => this.tickBulk(a.value, owned, Boolean((e.target as HTMLInputElement).checked))}
@@ -1512,13 +1512,13 @@ export class ErpCombosMenus extends LitElement {
         <!-- Blocked, never natively disabled: Ionic implements disabled as pointer-events:none, so
              the tap dies and the reason with it. (No backticks in an HTML comment inside an html
              tagged template: one would CLOSE the template and break the whole component.) -->
-        <ion-button class="ion-margin-top" expand="block" data-test="bulk-confirm"
+        <ion-button class="ion-margin-top" expand="block" data-testid="combos-bulk-confirm"
           data-blocked=${String(n === 0)} aria-disabled=${String(n === 0)}
           style=${n === 0 ? 'opacity:.55' : ''}
           @click=${() => this.confirmBulk()}
         >${this.saving ? t('ui.saving') : t('ui.bulkAddCount', { n })}</ion-button>
         ${this.bulkReason
-          ? html`<p data-test="bulk-blocked-reason" style="color:var(--ion-color-danger,#c5000f);font-size:.85rem;">${this.bulkReason}</p>`
+          ? html`<p data-testid="combos-bulk-blocked-reason" style="color:var(--ion-color-danger,#c5000f);font-size:.85rem;">${this.bulkReason}</p>`
           : nothing}
       </ion-content>
     </ion-modal>`;
@@ -1531,31 +1531,31 @@ export class ErpCombosMenus extends LitElement {
       <div class="form">
         <span class="title">${this.editingCourse ? t('ui.editCourse', { name: this.editingCourse.name }) : t('ui.newCourse')}</span>
         <div class="row">
-          <ion-input mode="md" fill="outline" data-test="course-name" label=${t('ui.fieldCourseName')} label-placement="floating"
+          <ion-input mode="md" fill="outline" data-testid="combos-course-name" label=${t('ui.fieldCourseName')} label-placement="floating"
             .value=${this.cName}
             @ionInput=${(e: CustomEvent) => (this.cName = String((e.target as HTMLInputElement).value ?? ''))}></ion-input>
-          <ion-input mode="md" fill="outline" data-test="course-min" type="number" min="0"
+          <ion-input mode="md" fill="outline" data-testid="combos-course-min" type="number" min="0"
             label=${t('ui.fieldMin')} label-placement="floating" .value=${this.cMin}
             @ionInput=${(e: CustomEvent) => (this.cMin = String((e.target as HTMLInputElement).value ?? '0'))}></ion-input>
-          <ion-input mode="md" fill="outline" data-test="course-max" type="number" min="0"
+          <ion-input mode="md" fill="outline" data-testid="combos-course-max" type="number" min="0"
             label=${t('ui.fieldMax')} label-placement="floating" .value=${this.cMax}
             @ionInput=${(e: CustomEvent) => (this.cMax = String((e.target as HTMLInputElement).value ?? '0'))}></ion-input>
         </div>
         <p class="help">${t('ui.fieldMinHelp')}</p>
         <p class="help">${t('ui.fieldMaxHelp')}</p>
-        <ion-checkbox .checked=${this.cRepeat}
+        <ion-checkbox data-testid="combos-course-repeat" .checked=${this.cRepeat}
           @ionChange=${(e: CustomEvent) => (this.cRepeat = Boolean((e.target as HTMLInputElement).checked))}>${t('ui.fieldRepeat')}</ion-checkbox>
         <div class="row">
           ${this.blockingButton({
-            test: 'save-course',
+            testid: 'combos-course-save',
             blocked: Boolean(blockedKey),
             label: this.saving ? t('ui.saving') : t('ui.save'),
             onClick: () => this.saveCourse(),
           })}
-          ${this.editingCourse ? html`<ion-button size="small" @click=${() => this.resetCourseForm()}>${t('ui.cancel')}</ion-button>` : nothing}
+          ${this.editingCourse ? html`<ion-button size="small" data-testid="combos-course-cancel" @click=${() => this.resetCourseForm()}>${t('ui.cancel')}</ion-button>` : nothing}
         </div>
-        ${this.courseReason ? html`<p class="reason" data-test="course-blocked-reason">${this.courseReason}</p>` : nothing}
-        ${this.courseError ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.courseError}</ok-inline-feedback>` : nothing}
+        ${this.courseReason ? html`<p class="reason" data-testid="combos-course-blocked-reason">${this.courseReason}</p>` : nothing}
+        ${this.courseError ? html`<ok-inline-feedback data-testid="combos-course-error" tone="danger" icon="alert-circle-outline">${this.courseError}</ok-inline-feedback>` : nothing}
       </div>
     </section>`;
   }
@@ -1564,7 +1564,7 @@ export class ErpCombosMenus extends LitElement {
     const goods = combo.supply_kind === 'goods';
     return html`<div class="builder">
       <div class="menu-head">
-        <ion-button size="small" data-test="back-to-menus" @click=${() => this.backToList()}>
+        <ion-button size="small" data-testid="combos-back" @click=${() => this.backToList()}>
           <ion-icon name="arrow-back-outline" slot="start"></ion-icon>${t('ui.back')}
         </ion-button>
         <span class="name">${combo.name}</span>
@@ -1572,24 +1572,24 @@ export class ErpCombosMenus extends LitElement {
       </div>
 
       <!-- What this menu will DO on the receipt, said before anybody discovers it on an invoice. -->
-      <ok-inline-feedback data-test="supply-consequence" tone=${goods ? 'warning' : 'info'} icon="receipt-outline">
+      <ok-inline-feedback data-testid="combos-supply-consequence" tone=${goods ? 'warning' : 'info'} icon="receipt-outline">
         ${goods ? t('ui.supplyGoodsWarning') : t('ui.supplyServiceWarning')}
       </ok-inline-feedback>
 
       ${this.missingCatalogues.length
-        ? html`<ok-inline-feedback data-test="catalogue-missing" tone="warning" icon="alert-circle-outline">
+        ? html`<ok-inline-feedback data-testid="combos-catalogue-missing" tone="warning" icon="alert-circle-outline">
             ${this.missingCatalogues.map((k) => t('ui.catalogueMissing', { module: t(k) })).join(' ')}
           </ok-inline-feedback>`
         : nothing}
 
       <!-- A catalogue that FAILED, said out loud. Swallowed it looks exactly like an empty one. -->
       ${this.catalogueError
-        ? html`<ok-inline-feedback data-test="catalogue-error" tone="danger" icon="alert-circle-outline">
+        ? html`<ok-inline-feedback data-testid="combos-catalogue-error" tone="danger" icon="alert-circle-outline">
             ${this.catalogueError}
           </ok-inline-feedback>`
         : nothing}
       ${this.taxCategoriesError
-        ? html`<ok-inline-feedback data-test="tax-categories-error" tone="danger" icon="alert-circle-outline">
+        ? html`<ok-inline-feedback data-testid="combos-tax-categories-error" tone="danger" icon="alert-circle-outline">
             ${this.taxCategoriesError}
           </ok-inline-feedback>`
         : nothing}
@@ -1601,11 +1601,11 @@ export class ErpCombosMenus extends LitElement {
         </div>
 
         ${this.coursesLoading
-          ? html`<p class="muted" data-test="courses-loading">${t('ui.coursesLoading')}</p>`
+          ? html`<p class="muted" data-testid="combos-courses-loading">${t('ui.coursesLoading')}</p>`
           : this.coursesError
-            ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.coursesError}</ok-inline-feedback>`
+            ? html`<ok-inline-feedback data-testid="combos-courses-error" tone="danger" icon="alert-circle-outline">${this.coursesError}</ok-inline-feedback>`
             : this.courses.length === 0
-              ? html`<p class="muted" data-test="courses-empty">${t('ui.coursesEmpty')}</p>`
+              ? html`<p class="muted" data-testid="combos-courses-empty">${t('ui.coursesEmpty')}</p>`
               : this.courses.map((c, i) => this.renderCourse(c, i))}
 
         ${this.coursesLoading ? nothing : this.renderCourseForm()}
@@ -1623,9 +1623,9 @@ export class ErpCombosMenus extends LitElement {
     }
 
     return html`<div class="page">
-      ${this.comboError ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.comboError}</ok-inline-feedback>` : nothing}
-      ${this.ctrl?.error ? html`<ok-inline-feedback tone="danger" icon="alert-circle-outline">${this.ctrl.error}</ok-inline-feedback>` : nothing}
-      <ok-data-table
+      ${this.comboError ? html`<ok-inline-feedback data-testid="combos-error" tone="danger" icon="alert-circle-outline">${this.comboError}</ok-inline-feedback>` : nothing}
+      ${this.ctrl?.error ? html`<ok-inline-feedback data-testid="combos-list-error" tone="danger" icon="alert-circle-outline">${this.ctrl.error}</ok-inline-feedback>` : nothing}
+      <ok-data-table testid="combos-table"
         .serverSide=${true}
         .fill=${true}
         .labels=${dataTableLabels(erplora().locale)}

@@ -179,12 +179,24 @@ async function settle(el: Element): Promise<void> {
 const table = (el: Mounted) =>
   el.shadowRoot.querySelector('ok-data-table') as (HTMLElement & Record<string, unknown>) | null;
 
-const at = (el: Mounted, test: string) =>
-  el.shadowRoot.querySelector(`[data-test="${test}"]`) as (HTMLElement & { value?: unknown }) | null;
+const at = (el: Mounted, testid: string) =>
+  el.shadowRoot.querySelector(`[data-testid="${testid}"]`) as (HTMLElement & { value?: unknown }) | null;
+
+/**
+ * The name of a control the builder paints once PER COURSE (the option picker, its supplement, the
+ * save, the bulk add, the reasons): each one carries the identity of the course it belongs to, or
+ * three courses on screen would paint three controls answering to the same name. The fixtures of
+ * this file build their menu around `g1`, which is the course these helpers reach by default.
+ */
+const COURSE = 'g1';
+const inCourse = (name: string, groupId: string = COURSE) => `combos-course-row-${groupId}-${name}`;
+/** The same for a choice row, whose identity is its `option_id`. */
+const inChoice = (optionId: string, action?: string) =>
+  `combos-choice-row-${optionId}${action === undefined ? '' : `-${action}`}`;
 
 /** Types into a control the way Ionic reports it. */
-function type(el: Mounted, test: string, value: unknown): void {
-  const c = at(el, test)!;
+function type(el: Mounted, testid: string, value: unknown): void {
+  const c = at(el, testid)!;
   c.value = value;
   c.dispatchEvent(new CustomEvent('ionInput', { detail: { value } }));
   c.dispatchEvent(new CustomEvent('ionChange', { detail: { value } }));
@@ -223,14 +235,14 @@ describe('the menu list is the door, and a menu is entered by clicking its row',
     const el = await mount();
     await openMenu(el);
     expect(queried, 'the courses are not asked per combo').toContain('combos.groups.list');
-    const courses = [...el.shadowRoot.querySelectorAll('[data-test="course"]')];
+    const courses = [...el.shadowRoot.querySelectorAll('section[data-testid^="combos-course-row-"]')];
     expect(courses.map((c) => c.getAttribute('data-group-id')), 'wrong courses painted').toEqual(['g1', 'g2']);
   });
 
   it('the builder allows going back to the list without reloading the view', async () => {
     const el = await mount();
     await openMenu(el);
-    const back = at(el, 'back-to-menus');
+    const back = at(el, 'combos-back');
     expect(back, 'there is no way back from the builder').toBeTruthy();
     back!.click();
     await settle(el);
@@ -241,7 +253,7 @@ describe('the menu list is the door, and a menu is entered by clicking its row',
     groups = [DESSERT, STARTER];
     const el = await mount();
     await openMenu(el);
-    const courses = [...el.shadowRoot.querySelectorAll('[data-test="course"]')];
+    const courses = [...el.shadowRoot.querySelectorAll('section[data-testid^="combos-course-row-"]')];
     expect(courses.map((c) => c.getAttribute('data-group-id')),
       'the builder does not respect sort_order: the courses would be asked in another order at the till')
       .toEqual(['g1', 'g2']);
@@ -252,7 +264,7 @@ describe('the menu list is the door, and a menu is entered by clicking its row',
 
 describe('the obligation of a course is READ from min_choices and stated in words', () => {
   const course = (el: Mounted, id: string) =>
-    el.shadowRoot.querySelector(`[data-test="course"][data-group-id="${id}"]`) as HTMLElement;
+    el.shadowRoot.querySelector(`[data-testid="combos-course-row-${id}"]`) as HTMLElement;
 
   it('a course with min_choices >= 1 is presented as compulsory', async () => {
     const el = await mount();
@@ -274,7 +286,7 @@ describe('the obligation of a course is READ from min_choices and stated in word
   it('states the rule as a sentence, not as the raw number or the column name', async () => {
     const el = await mount();
     await openMenu(el);
-    const said = words(course(el, 'g1').querySelector('[data-test="course-rule"]'));
+    const said = words(course(el, 'g1').querySelector(`[data-testid="${inCourse('rule')}"]`));
     expect(said.length, 'the course rule is empty: nothing tells the owner what the till will do')
       .toBeGreaterThan(3);
     expect(/^(min_choices|max_choices|1|0)$/i.test(said), 'it shows the raw field, not a sentence').toBe(false);
@@ -308,7 +320,7 @@ describe('the obligation of a course is READ from min_choices and stated in word
 
 describe('supply_kind is offered by its consequence, not as tax jargon', () => {
   const supplyOptions = (el: Mounted) =>
-    [...el.shadowRoot.querySelectorAll('[data-test="supply-kind"] ion-select-option')] as HTMLElement[];
+    [...el.shadowRoot.querySelectorAll('[data-testid="combos-supply-kind"] ion-select-option')] as HTMLElement[];
 
   it('offers exactly the two values the database accepts', async () => {
     const el = await mount();
@@ -317,7 +329,7 @@ describe('supply_kind is offered by its consequence, not as tax jargon', () => {
 
   it('`service` is the default: the Spanish set menu goes entirely at the menu rate', async () => {
     const el = await mount();
-    expect((at(el, 'supply-kind') as { value: string }).value, 'the default is not `service`').toBe('service');
+    expect((at(el, 'combos-supply-kind') as { value: string }).value, 'the default is not `service`').toBe('service');
   });
 
   it('neither value is labelled with the raw enum: each states its consequence', async () => {
@@ -334,7 +346,7 @@ describe('supply_kind is offered by its consequence, not as tax jargon', () => {
     await openMenu(el, SHOP_PACK);
     expect(translated, 'a `goods` pack does not warn about the per-component split')
       .toContain('ui.supplyGoodsWarning');
-    expect(at(el, 'supply-consequence'), 'the consequence is not painted in the builder').toBeTruthy();
+    expect(at(el, 'combos-supply-consequence'), 'the consequence is not painted in the builder').toBeTruthy();
   });
 
   it('a `service` menu states the opposite: one single line, whatever its components are taxed at', async () => {
@@ -349,13 +361,13 @@ describe('supply_kind is offered by its consequence, not as tax jargon', () => {
 describe('the two CHECKs of the schema are explained on screen, not in the Postgres error', () => {
   it('a `service` menu with no rate of its own is not sent, and the reason is readable', async () => {
     const el = await mount();
-    type(el, 'combo-name', 'Menú sin tipo');
-    type(el, 'combo-price', '13,50');
-    type(el, 'supply-kind', 'service');
-    type(el, 'combo-tax-category', '');
+    type(el, 'combos-name', 'Menú sin tipo');
+    type(el, 'combos-price', '13,50');
+    type(el, 'combos-supply-kind', 'service');
+    type(el, 'combos-tax-category', '');
     await settle(el);
 
-    const button = at(el, 'save-combo')!;
+    const button = at(el, 'combos-save')!;
     expect(button.hasAttribute('disabled'),
       'uses the native `disabled`: the tap is swallowed and the reason stays in a title').toBe(false);
     expect(button.getAttribute('aria-disabled'), 'the button is not marked unactionable').toBe('true');
@@ -364,29 +376,29 @@ describe('the two CHECKs of the schema are explained on screen, not in the Postg
     await settle(el);
     expect(commands, 'a combo the database will refuse was sent').toEqual([]);
     expect(translated, 'the tap does not ANSWER with the reason').toContain('ui.errNoTaxCategory');
-    expect(at(el, 'combo-blocked-reason'), 'the reason is not painted anywhere').toBeTruthy();
+    expect(at(el, 'combos-blocked-reason'), 'the reason is not painted anywhere').toBeTruthy();
   });
 
   it('a `goods` menu needs no rate of its own: each component brings its own', async () => {
     const el = await mount();
-    type(el, 'combo-name', 'Pack tienda');
-    type(el, 'combo-price', '4,00');
-    type(el, 'supply-kind', 'goods');
-    type(el, 'combo-tax-category', '');
+    type(el, 'combos-name', 'Pack tienda');
+    type(el, 'combos-price', '4,00');
+    type(el, 'combos-supply-kind', 'goods');
+    type(el, 'combos-tax-category', '');
     await settle(el);
-    expect(at(el, 'save-combo')!.getAttribute('aria-disabled'),
+    expect(at(el, 'combos-save')!.getAttribute('aria-disabled'),
       '`goods` is being asked for a rate it does not need').toBe('false');
   });
 
   it('a ceiling below the floor is refused with the reason written, without reaching the database', async () => {
     const el = await mount();
     await openMenu(el);
-    type(el, 'course-name', 'Imposible');
-    type(el, 'course-min', '3');
-    type(el, 'course-max', '1');
+    type(el, 'combos-course-name', 'Imposible');
+    type(el, 'combos-course-min', '3');
+    type(el, 'combos-course-max', '1');
     await settle(el);
 
-    const button = at(el, 'save-course')!;
+    const button = at(el, 'combos-course-save')!;
     expect(button.getAttribute('aria-disabled')).toBe('true');
     button.click();
     await settle(el);
@@ -398,14 +410,14 @@ describe('the two CHECKs of the schema are explained on screen, not in the Postg
   it('a ceiling of 0 is "no limit" and is NOT confused with a ceiling below the floor', async () => {
     const el = await mount();
     await openMenu(el);
-    type(el, 'course-name', 'Bebida');
-    type(el, 'course-min', '1');
-    type(el, 'course-max', '0');
+    type(el, 'combos-course-name', 'Bebida');
+    type(el, 'combos-course-min', '1');
+    type(el, 'combos-course-max', '0');
     await settle(el);
 
-    expect(at(el, 'save-course')!.getAttribute('aria-disabled'),
+    expect(at(el, 'combos-course-save')!.getAttribute('aria-disabled'),
       '`max = 0` is no ceiling, not an invalid one').toBe('false');
-    at(el, 'save-course')!.click();
+    at(el, 'combos-course-save')!.click();
     await settle(el);
     expect(commands.map((c) => c.name)).toContain('combos.groups.create');
   });
@@ -413,11 +425,11 @@ describe('the two CHECKs of the schema are explained on screen, not in the Postg
   it('the course it sends carries the numbers as numbers, not as the typed strings', async () => {
     const el = await mount();
     await openMenu(el);
-    type(el, 'course-name', 'Bebida');
-    type(el, 'course-min', '1');
-    type(el, 'course-max', '2');
+    type(el, 'combos-course-name', 'Bebida');
+    type(el, 'combos-course-min', '1');
+    type(el, 'combos-course-max', '2');
     await settle(el);
-    at(el, 'save-course')!.click();
+    at(el, 'combos-course-save')!.click();
     await settle(el);
     const created = commands.find((c) => c.name === 'combos.groups.create')!;
     expect(created.payload.combo_id, 'the course is not hung from the open menu').toBe('c1');
@@ -430,7 +442,7 @@ describe('the two CHECKs of the schema are explained on screen, not in the Postg
 
 describe('the article picker does not give combos a hard dependency', () => {
   const picker = (el: Mounted) =>
-    at(el, 'option-picker') as unknown as HTMLElement & { options: { value: string; label: string }[] };
+    at(el, inCourse('option-picker')) as unknown as HTMLElement & { options: { value: string; label: string }[] };
 
   it('reads both catalogues through the OPTIONAL door (ADR-0127), not through `query`', async () => {
     const el = await mount();
@@ -453,7 +465,7 @@ describe('the article picker does not give combos a hard dependency', () => {
     const el = await mount();
     await openMenu(el);
     expect(translated, 'an absent catalogue is presented as an empty catalogue').toContain('ui.catalogueMissing');
-    expect(at(el, 'catalogue-missing'), 'the absence is not painted').toBeTruthy();
+    expect(at(el, 'combos-catalogue-missing'), 'the absence is not painted').toBeTruthy();
     expect(picker(el).options.map((o) => o.label).join(' | '),
       'the services are there and must still be offered').toContain('Corte de pelo');
   });
@@ -462,9 +474,9 @@ describe('the article picker does not give combos a hard dependency', () => {
     const el = await mount();
     await openMenu(el);
     picker(el).dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p2', label: 'Solomillo' } }));
-    type(el, 'option-delta', '3,00');
+    type(el, inCourse('option-delta'), '3,00');
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
     const created = commands.find((c) => c.name === 'combos.options.create');
@@ -484,9 +496,9 @@ describe('the article picker does not give combos a hard dependency', () => {
     const el = await mount();
     await openMenu(el);
     picker(el).dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p2', label: 'Solomillo' } }));
-    type(el, 'option-delta', '-1,50');
+    type(el, inCourse('option-delta'), '-1,50');
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
     const created = commands.find((c) => c.name === 'combos.options.create')!;
@@ -496,8 +508,8 @@ describe('the article picker does not give combos a hard dependency', () => {
   it('will not add a choice with no article picked, and says why', async () => {
     const el = await mount();
     await openMenu(el);
-    expect(at(el, 'save-option')!.getAttribute('aria-disabled')).toBe('true');
-    at(el, 'save-option')!.click();
+    expect(at(el, inCourse('option-save'))!.getAttribute('aria-disabled')).toBe('true');
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
     expect(commands.filter((c) => c.name === 'combos.options.create')).toEqual([]);
     expect(translated).toContain('ui.errNoArticle');
@@ -511,7 +523,7 @@ describe('the three states that are not the happy path are painted', () => {
     groups = [];
     const el = await mount();
     await openMenu(el);
-    expect(at(el, 'courses-empty'), 'an empty menu says nothing').toBeTruthy();
+    expect(at(el, 'combos-courses-empty'), 'an empty menu says nothing').toBeTruthy();
   });
 
   it('if the courses fail to load, the error shows — not a menu that looks empty', async () => {
@@ -520,14 +532,14 @@ describe('the three states that are not the happy path are painted', () => {
     await openMenu(el);
     expect(el.shadowRoot.querySelector('ok-inline-feedback[tone="danger"]'),
       'a load failure is presented as "this menu has no courses"').toBeTruthy();
-    expect(at(el, 'courses-empty'), 'it also claims to be empty, which is false').toBeNull();
+    expect(at(el, 'combos-courses-empty'), 'it also claims to be empty, which is false').toBeNull();
   });
 
   it('while the courses load it says so, and not ahead of time', async () => {
     const el = await mount();
     table(el)!.dispatchEvent(new CustomEvent('rowClick', { detail: { row: SET_MENU } }));
     await (el as unknown as { updateComplete: Promise<unknown> }).updateComplete;
-    expect(at(el, 'courses-loading'), 'there is no loading state').toBeTruthy();
+    expect(at(el, 'combos-courses-loading'), 'there is no loading state').toBeTruthy();
   });
 });
 
@@ -542,7 +554,7 @@ describe('the UI rules already paid for in other modules', () => {
     [...el.shadowRoot.querySelectorAll('ion-input[fill], ion-select[fill], ion-textarea[fill]')];
 
   const namesOf = (nodes: Element[]) =>
-    nodes.map((c) => `${c.tagName.toLowerCase()}:${c.getAttribute('data-test') ?? c.getAttribute('label') ?? ''}`);
+    nodes.map((c) => `${c.tagName.toLowerCase()}:${c.getAttribute('data-testid') ?? c.getAttribute('label') ?? ''}`);
 
   it('every form control with `fill` carries `mode="md"` (in `ios` fill is a no-op, ADR-0143)', async () => {
     const el = await mount();
@@ -561,9 +573,9 @@ describe('the UI rules already paid for in other modules', () => {
       'these controls of the BUILDER render with no box and no border in the hub shell').toEqual([]);
 
     // And `goods` swaps part of the combo form, so its branch is inspected too.
-    el.shadowRoot.querySelector('[data-test="back-to-menus"]')!.dispatchEvent(new MouseEvent('click'));
+    el.shadowRoot.querySelector('[data-testid="combos-back"]')!.dispatchEvent(new MouseEvent('click'));
     await settle(el);
-    type(el, 'supply-kind', 'goods');
+    type(el, 'combos-supply-kind', 'goods');
     await settle(el);
     expect(namesOf(fillControls(el).filter((c) => c.getAttribute('mode') !== 'md')),
       'the `goods` branch of the menu form ships a control the shell will not paint').toEqual([]);
@@ -579,27 +591,27 @@ describe('the UI rules already paid for in other modules', () => {
 
     // Walk the paths whose sentences only appear once something is being edited or refused —
     // they are exactly the ones a new feature forgets to translate.
-    (el.shadowRoot.querySelector('[data-test="edit-choice"]') as HTMLElement).click();
+    (el.shadowRoot.querySelector(`[data-testid="${inChoice('o1', 'edit')}"]`) as HTMLElement).click();
     await settle(el);
-    (el.shadowRoot.querySelector('[data-test="cancel-choice"]') as HTMLElement).click();
+    (el.shadowRoot.querySelector(`[data-testid="${inCourse('option-cancel')}"]`) as HTMLElement).click();
     await settle(el);
-    (el.shadowRoot.querySelector('[data-test="option-picker"]') as HTMLElement)
+    (el.shadowRoot.querySelector(`[data-testid="${inCourse('option-picker')}"]`) as HTMLElement)
       .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p1' } }));
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
     // The bulk picker and its refusal: every sentence in there only exists once it is opened.
-    (el.shadowRoot.querySelector('[data-test="bulk-add"]') as HTMLElement).click();
+    (el.shadowRoot.querySelector(`[data-testid="${inCourse('bulk-add')}"]`) as HTMLElement).click();
     await settle(el);
-    at(el, 'bulk-confirm')!.click();
+    at(el, 'combos-bulk-confirm')!.click();
     await settle(el);
-    at(el, 'bulk-cancel')!.click();
+    at(el, 'combos-bulk-cancel')!.click();
     await settle(el);
 
-    el.shadowRoot.querySelector('[data-test="back-to-menus"]')!.dispatchEvent(new MouseEvent('click'));
+    el.shadowRoot.querySelector('[data-testid="combos-back"]')!.dispatchEvent(new MouseEvent('click'));
     await settle(el);
-    type(el, 'supply-kind', 'goods');
+    type(el, 'combos-supply-kind', 'goods');
     await settle(el);
 
     const lookup = (catalog: Record<string, unknown>, key: string): unknown => {
@@ -692,7 +704,7 @@ describe('the UI rules already paid for in other modules', () => {
   it('no ion-button leans on the `color` attribute: inside the shadow root it paints white on white', async () => {
     const el = await mount();
     const offenders = (root: ShadowRoot) =>
-      [...root.querySelectorAll('ion-button[color]')].map((b) => `${b.getAttribute('data-test') ?? b.textContent?.trim()}:color=${b.getAttribute('color')}`);
+      [...root.querySelectorAll('ion-button[color]')].map((b) => `${b.getAttribute('data-testid') ?? b.textContent?.trim()}:color=${b.getAttribute('color')}`);
 
     expect(offenders(el.shadowRoot), 'these buttons of the MENU list render invisible in the hub').toEqual([]);
     await openMenu(el);
@@ -717,8 +729,8 @@ describe('the UI rules already paid for in other modules', () => {
     (globalThis as Record<string, any>).erplora.hasPermission = (p: string) => p !== 'combos.manage_combo';
     const el = await mount();
     await openMenu(el);
-    expect(at(el, 'save-course'), 'a read-only user is offered a course form').toBeNull();
-    expect(at(el, 'save-option'), 'a read-only user is offered a choice form').toBeNull();
+    expect(at(el, 'combos-course-save'), 'a read-only user is offered a course form').toBeNull();
+    expect(at(el, inCourse('option-save')), 'a read-only user is offered a choice form').toBeNull();
   });
 });
 
@@ -783,14 +795,14 @@ function persistChoices(): void {
 
 /** The choices of a course as the screen paints them, top to bottom. */
 const choiceOrder = (el: Mounted, groupId = 'g1') =>
-  [...el.shadowRoot.querySelectorAll(`[data-test="course"][data-group-id="${groupId}"] [data-test="choice"]`)]
+  [...el.shadowRoot.querySelectorAll(`[data-testid="combos-course-row-${groupId}"] li[data-testid^="combos-choice-row-"]`)]
     .map((li) => li.getAttribute('data-option-id'));
 
 const choiceRow = (el: Mounted, optionId: string) =>
-  el.shadowRoot.querySelector(`[data-test="choice"][data-option-id="${optionId}"]`) as HTMLElement;
+  el.shadowRoot.querySelector(`[data-testid="combos-choice-row-${optionId}"]`) as HTMLElement;
 
-const inRow = (el: Mounted, optionId: string, test: string) =>
-  choiceRow(el, optionId)?.querySelector(`[data-test="${test}"]`) as HTMLElement | null;
+const inRow = (el: Mounted, optionId: string, action: string) =>
+  choiceRow(el, optionId)?.querySelector(`[data-testid="${inChoice(optionId, action)}"]`) as HTMLElement | null;
 
 describe('a choice is edited in place, keeping the position it holds in the course', () => {
   beforeEach(() => {
@@ -814,8 +826,8 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     const el = await mount();
     await openMenu(el);
     expect(choiceOrder(el), 'bench not as declared').toEqual(['o1', 'o2', 'o3']);
-    expect(inRow(el, 'o1', 'edit-choice'), 'a choice cannot be edited: the only route is delete + re-add').toBeTruthy();
-    expect(inRow(el, 'o1', 'delete-choice'), 'the withdraw control disappeared').toBeTruthy();
+    expect(inRow(el, 'o1', 'edit'), 'a choice cannot be edited: the only route is delete + re-add').toBeTruthy();
+    expect(inRow(el, 'o1', 'delete'), 'the withdraw control disappeared').toBeTruthy();
   });
 
   // 🔴 THE TEST THE ISSUE IS ABOUT.
@@ -828,11 +840,11 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     await openMenu(el);
     const before = choiceOrder(el);
 
-    inRow(el, 'o3', 'edit-choice')!.click();
+    inRow(el, 'o3', 'edit')!.click();
     await settle(el);
-    type(el, 'option-delta', '0,50');
+    type(el, inCourse('option-delta'), '0,50');
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
     expect(choiceOrder(el), 'correcting a supplement REORDERED the menu').toEqual(before);
@@ -848,11 +860,11 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('the update carries the position the choice already had, it does not let the server default it', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o3', 'edit-choice')!.click();
+    inRow(el, 'o3', 'edit')!.click();
     await settle(el);
-    type(el, 'option-delta', '2,00');
+    type(el, inCourse('option-delta'), '2,00');
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
     const sent = commands.find((c) => c.name === 'combos.options.update')!;
@@ -865,16 +877,16 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('the form opens loaded with what the choice says today, not empty', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o2', 'edit-choice')!.click();
+    inRow(el, 'o2', 'edit')!.click();
     await settle(el);
 
-    const picker = at(el, 'option-picker') as unknown as { value: string };
+    const picker = at(el, inCourse('option-picker')) as unknown as { value: string };
     expect(picker.value, 'the picker does not preselect the article being edited').toBe('product:p2');
     // Was `'3'` until combos#3. That assertion pinned the defect: `String(minorToMajor(300, 2))`
     // gives `3` — no decimals, and a dot as soon as there is a fraction. The field now speaks the
     // hub's locale with the currency's decimals, so 300 minor reads «3,00» in es. Changed because
     // the assertion was wrong, not because the code moved under it.
-    expect(String((at(el, 'option-delta') as { value?: unknown }).value ?? ''),
+    expect(String((at(el, inCourse('option-delta')) as { value?: unknown }).value ?? ''),
       'the supplement box does not carry the current supplement').toBe('3,00');
     expect(choiceRow(el, 'o2').getAttribute('data-editing'),
       'nothing marks WHICH choice is being edited').toBe('true');
@@ -884,12 +896,12 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('editing the ARTICLE keeps the reference OPAQUE: source + source_ref, never the name', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
-    (at(el, 'option-picker') as HTMLElement)
+    (at(el, inCourse('option-picker')) as HTMLElement)
       .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'service:s1x', label: 'Corte de pelo' } }));
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
     const sent = commands.find((c) => c.name === 'combos.options.update')!;
@@ -902,11 +914,11 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('a NEGATIVE supplement can be set by editing, exactly as it can by adding', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o2', 'edit-choice')!.click();
+    inRow(el, 'o2', 'edit')!.click();
     await settle(el);
-    type(el, 'option-delta', '-1,50');
+    type(el, inCourse('option-delta'), '-1,50');
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
     expect(commands.find((c) => c.name === 'combos.options.update')!.payload.price_delta,
       'a cheaper substitution is lost or clamped to 0 when edited').toBe(-150);
@@ -915,16 +927,16 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('cancelling an edit changes nothing and returns the form to adding', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
-    type(el, 'option-delta', '9,99');
+    type(el, inCourse('option-delta'), '9,99');
     await settle(el);
-    at(el, 'cancel-choice')!.click();
+    at(el, inCourse('option-cancel'))!.click();
     await settle(el);
 
     expect(commands.filter((c) => c.name.startsWith('combos.options.')), 'cancelling wrote something').toEqual([]);
     expect(choiceRow(el, 'o1').getAttribute('data-editing'), 'the choice is still marked as being edited').toBe('false');
-    expect(String((at(el, 'option-delta') as { value?: unknown }).value ?? ''),
+    expect(String((at(el, inCourse('option-delta')) as { value?: unknown }).value ?? ''),
       'the abandoned draft is still in the box, ready to be added as a new choice').toBe('');
   });
 
@@ -933,31 +945,31 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('pointing a choice at an article the course already has is refused, with the reason in words', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
-    (at(el, 'option-picker') as HTMLElement)
+    (at(el, inCourse('option-picker')) as HTMLElement)
       .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p2' } }));
     await settle(el);
 
-    const button = at(el, 'save-option')!;
+    const button = at(el, inCourse('option-save'))!;
     expect(button.hasAttribute('disabled'), 'uses the native `disabled`: the tap is swallowed').toBe(false);
     expect(button.getAttribute('aria-disabled'), 'a duplicate the database will refuse is offered as saveable').toBe('true');
     button.click();
     await settle(el);
     expect(commands.filter((c) => c.name === 'combos.options.update'), 'a duplicate was sent to the database').toEqual([]);
     expect(translated, 'the tap does not ANSWER with the reason').toContain('ui.errDuplicateArticle');
-    expect(at(el, 'option-blocked-reason'), 'the reason is not painted anywhere').toBeTruthy();
+    expect(at(el, inCourse('option-blocked-reason')), 'the reason is not painted anywhere').toBeTruthy();
   });
 
   it('the same guard protects ADDING, which could always hit that index too', async () => {
     const el = await mount();
     await openMenu(el);
-    (at(el, 'option-picker') as HTMLElement)
+    (at(el, inCourse('option-picker')) as HTMLElement)
       .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p1' } }));
     await settle(el);
-    expect(at(el, 'save-option')!.getAttribute('aria-disabled'),
+    expect(at(el, inCourse('option-save'))!.getAttribute('aria-disabled'),
       'adding an article the course already has is offered as saveable').toBe('true');
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
     expect(commands.filter((c) => c.name === 'combos.options.create'), 'a duplicate was sent to the database').toEqual([]);
   });
@@ -969,31 +981,31 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('the reason is painted INSIDE the course whose form was refused, not at the foot of the menu', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
-    (at(el, 'option-picker') as HTMLElement)
+    (at(el, inCourse('option-picker')) as HTMLElement)
       .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p2' } }));
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
-    const course = (id: string) => el.shadowRoot.querySelector(`[data-test="course"][data-group-id="${id}"]`)!;
-    expect(course('g1').querySelector('[data-test="option-blocked-reason"]'),
+    const course = (id: string) => el.shadowRoot.querySelector(`[data-testid="combos-course-row-${id}"]`)!;
+    expect(course('g1').querySelector('[data-testid$="-option-blocked-reason"]'),
       'the reason is not inside the course that refused: on a phone it is off-screen').toBeTruthy();
-    expect(course('g2').querySelector('[data-test="option-blocked-reason"]'),
+    expect(course('g2').querySelector('[data-testid$="-option-blocked-reason"]'),
       'the reason is repeated in a course that refused nothing').toBeNull();
   });
 
   it('a failure is reported in the course it happened in, not in every course at once', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
     (globalThis as Record<string, any>).erplora.command = async () => { throw new Error(''); };
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
-    const course = (id: string) => el.shadowRoot.querySelector(`[data-test="course"][data-group-id="${id}"]`)!;
+    const course = (id: string) => el.shadowRoot.querySelector(`[data-testid="combos-course-row-${id}"]`)!;
     expect(course('g1').querySelector('ok-inline-feedback[tone="danger"]'),
       'the failure is not shown in the course it happened in').toBeTruthy();
     expect(course('g2').querySelector('ok-inline-feedback[tone="danger"]'),
@@ -1003,29 +1015,29 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('a refusal does not survive leaving the menu and coming back', async () => {
     const el = await mount();
     await openMenu(el);
-    (at(el, 'option-picker') as HTMLElement)
+    (at(el, inCourse('option-picker')) as HTMLElement)
       .dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p1' } }));
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
-    expect(at(el, 'option-blocked-reason'), 'the refusal was not shown in the first place').toBeTruthy();
+    expect(at(el, inCourse('option-blocked-reason')), 'the refusal was not shown in the first place').toBeTruthy();
 
-    at(el, 'back-to-menus')!.click();
+    at(el, 'combos-back')!.click();
     await settle(el);
     await openMenu(el);
-    expect(at(el, 'option-blocked-reason'),
+    expect(at(el, inCourse('option-blocked-reason')),
       'the old refusal is painted again on a menu where nothing was refused').toBeNull();
     // The half-typed draft belongs to the same abandoned attempt.
-    expect((at(el, 'option-picker') as unknown as { value: string }).value,
+    expect((at(el, inCourse('option-picker')) as unknown as { value: string }).value,
       'the article picked in the abandoned attempt is still selected').toBe('');
   });
 
   it('editing a choice into ITSELF is not a duplicate', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
-    expect(at(el, 'save-option')!.getAttribute('aria-disabled'),
+    expect(at(el, inCourse('option-save'))!.getAttribute('aria-disabled'),
       'the choice being edited is counted as its own duplicate').toBe('false');
   });
 
@@ -1035,7 +1047,7 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('the choices of a course are reordered with arrows, writing nothing but their positions', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o3', 'choice-up')!.click();
+    inRow(el, 'o3', 'up')!.click();
     await settle(el);
 
     expect(choiceOrder(el), 'the arrow did not move the choice').toEqual(['o1', 'o3', 'o2']);
@@ -1051,12 +1063,12 @@ describe('a choice is edited in place, keeping the position it holds in the cour
   it('the arrows at the ends are blocked and still answer, they are not natively disabled', async () => {
     const el = await mount();
     await openMenu(el);
-    const first = inRow(el, 'o1', 'choice-up')!;
-    const last = inRow(el, 'o3', 'choice-down')!;
+    const first = inRow(el, 'o1', 'up')!;
+    const last = inRow(el, 'o3', 'down')!;
     expect(first.getAttribute('aria-disabled'), 'the first choice can be moved further up').toBe('true');
     expect(first.hasAttribute('disabled'), 'native `disabled` swallows the tap').toBe(false);
     expect(last.getAttribute('aria-disabled'), 'the last choice can be moved further down').toBe('true');
-    expect(inRow(el, 'o2', 'choice-up')!.getAttribute('aria-disabled'), 'a middle choice cannot be moved').toBe('false');
+    expect(inRow(el, 'o2', 'up')!.getAttribute('aria-disabled'), 'a middle choice cannot be moved').toBe('false');
     first.click();
     await settle(el);
     expect(commands.filter((c) => c.name.startsWith('combos.options.')), 'a blocked arrow wrote anyway').toEqual([]);
@@ -1072,20 +1084,20 @@ describe('a choice is edited in place, keeping the position it holds in the cour
     const el = await mount();
     await openMenu(el);
     expect(choiceOrder(el), 'a read-only user cannot see the choices at all').toEqual(['o1', 'o2', 'o3']);
-    expect(inRow(el, 'o1', 'edit-choice'), 'a read-only user is offered an edit control').toBeNull();
-    expect(inRow(el, 'o1', 'choice-up'), 'a read-only user is offered a reorder arrow').toBeNull();
-    expect(inRow(el, 'o1', 'delete-choice'), 'a read-only user is offered a withdraw control').toBeNull();
+    expect(inRow(el, 'o1', 'edit'), 'a read-only user is offered an edit control').toBeNull();
+    expect(inRow(el, 'o1', 'up'), 'a read-only user is offered a reorder arrow').toBeNull();
+    expect(inRow(el, 'o1', 'delete'), 'a read-only user is offered a withdraw control').toBeNull();
   });
 
   it('a failed edit is SAID and the screen goes back to the truth on the server', async () => {
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
     (globalThis as Record<string, any>).erplora.command = async () => { throw new Error(''); };
-    type(el, 'option-delta', '1,00');
+    type(el, inCourse('option-delta'), '1,00');
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
 
     expect(el.shadowRoot.querySelector('ok-inline-feedback[tone="danger"]'),
@@ -1136,10 +1148,12 @@ const styleSheet = (el: Mounted): string => {
 
 describe('every control of the builder is a target a finger can hit', () => {
   /** The icon-only controls: no label to widen them, so they are the ones that collapse to 28. */
-  const ICON_ONLY = ['course-drag', 'course-up', 'course-down',
-    'choice-drag', 'choice-up', 'choice-down', 'edit-choice', 'delete-choice'];
+  const ICON_ONLY = [inCourse('drag'), inCourse('up'), inCourse('down'),
+    inChoice('o1', 'drag'), inChoice('o1', 'up'), inChoice('o1', 'down'),
+    inChoice('o1', 'edit'), inChoice('o1', 'delete')];
   /** Controls WITH a label that share a row with the icon-only ones. Same row, same height. */
-  const LABELLED = ['edit-course', 'delete-course', 'back-to-menus', 'save-option', 'bulk-add'];
+  const LABELLED = [inCourse('edit'), inCourse('delete'), 'combos-back',
+    inCourse('option-save'), inCourse('bulk-add')];
 
   beforeEach(() => {
     threeChoices();
@@ -1149,11 +1163,11 @@ describe('every control of the builder is a target a finger can hit', () => {
   it('the icon-only controls all declare the same touch-target class', async () => {
     const el = await mount();
     await openMenu(el);
-    for (const test of ICON_ONLY) {
-      const btn = el.shadowRoot.querySelector(`[data-test="${test}"]`);
-      expect(btn, `\`${test}\` is not painted: the bench does not cover it`).toBeTruthy();
+    for (const testid of ICON_ONLY) {
+      const btn = el.shadowRoot.querySelector(`[data-testid="${testid}"]`);
+      expect(btn, `\`${testid}\` is not painted: the bench does not cover it`).toBeTruthy();
       expect(btn!.classList.contains('icon-btn'),
-        `\`${test}\` does not carry the touch-target class: it keeps whatever size Ionic gives it`)
+        `\`${testid}\` does not carry the touch-target class: it keeps whatever size Ionic gives it`)
         .toBe(true);
     }
   });
@@ -1175,9 +1189,9 @@ describe('every control of the builder is a target a finger can hit', () => {
     expect(pinnedPx(css, 'ion-button', 'min-height'),
       'the height is pinned per control instead of for the screen: the card ends up with two sizes')
       .toBeGreaterThanOrEqual(44);
-    for (const test of LABELLED) {
-      expect(el.shadowRoot.querySelector(`[data-test="${test}"]`),
-        `\`${test}\` is not painted: the bench does not cover the row it shares`).toBeTruthy();
+    for (const testid of LABELLED) {
+      expect(el.shadowRoot.querySelector(`[data-testid="${testid}"]`),
+        `\`${testid}\` is not painted: the bench does not cover the row it shares`).toBeTruthy();
     }
   });
 
@@ -1253,10 +1267,10 @@ describe('every control of the builder is a target a finger can hit', () => {
 async function savePriceTyped(el: Mounted, typed: string): Promise<unknown> {
   table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
   await settle(el);
-  type(el, 'combo-price', typed);
+  type(el, 'combos-price', typed);
   await settle(el);
   commands = [];
-  at(el, 'save-combo')!.click();
+  at(el, 'combos-save')!.click();
   await settle(el);
   const cmd = commands.find((c) => c.name === 'combos.combos.update');
   return cmd ? cmd.payload.price : undefined;
@@ -1268,7 +1282,7 @@ describe('money is written into the field in the language of the hub, and read b
     table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
     await settle(el);
     // 1350 minor, EUR, locale `es` -> «13,50». Not `13.5`: neither the separator nor the decimals.
-    expect(at(el, 'combo-price')!.value,
+    expect(at(el, 'combos-price')!.value,
       'the price field speaks JavaScript, not the language of the hub').toBe('13,50');
   });
 
@@ -1276,9 +1290,9 @@ describe('money is written into the field in the language of the hub, and read b
     options = [{ option_id: 'o1', group_id: 'g1', source: 'product', source_ref: 'p1', price_delta: 150, sort_order: 0 }];
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
-    expect(at(el, 'option-delta')!.value,
+    expect(at(el, inCourse('option-delta'))!.value,
       'the supplement field speaks JavaScript, not the language of the hub').toBe('1,50');
   });
 
@@ -1288,7 +1302,7 @@ describe('money is written into the field in the language of the hub, and read b
     const el = await mount();
     table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: { ...SET_MENU, price: 125050 } } }));
     await settle(el);
-    expect(at(el, 'combo-price')!.value,
+    expect(at(el, 'combos-price')!.value,
       'the field groups: its own output does not survive being read back').toBe('1250,50');
   });
 
@@ -1326,11 +1340,11 @@ describe('money is written into the field in the language of the hub, and read b
     persistChoices();
     const el = await mount();
     await openMenu(el);
-    inRow(el, 'o1', 'edit-choice')!.click();
+    inRow(el, 'o1', 'edit')!.click();
     await settle(el);
-    type(el, 'option-delta', '-1,50');
+    type(el, inCourse('option-delta'), '-1,50');
     await settle(el);
-    at(el, 'save-option')!.click();
+    at(el, inCourse('option-save'))!.click();
     await settle(el);
     expect(commands.find((c) => c.name === 'combos.options.update')?.payload.price_delta,
       'the minus sign was cleaned away with the currency symbol').toBe(-150);
@@ -1345,14 +1359,14 @@ describe('money is written into the field in the language of the hub, and read b
     const el = await mount();
     table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
     await settle(el);
-    type(el, 'combo-price', '1.250');
+    type(el, 'combos-price', '1.250');
     await settle(el);
     commands = [];
-    at(el, 'save-combo')!.click();
+    at(el, 'combos-save')!.click();
     await settle(el);
     expect(commands.find((c) => c.name === 'combos.combos.update'),
       'a `1.250` that could mean 1250 or 1,25 was guessed and written anyway').toBeUndefined();
-    expect(at(el, 'combo-blocked-reason'), 'it was refused in silence, which is the worse half').toBeTruthy();
+    expect(at(el, 'combos-blocked-reason'), 'it was refused in silence, which is the worse half').toBeTruthy();
     expect(translated, 'the refusal has no sentence of its own').toContain('ui.errAmbiguousAmount');
   });
 
@@ -1365,11 +1379,11 @@ describe('money is written into the field in the language of the hub, and read b
     const el = await mount();
     table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
     await settle(el);
-    type(el, 'combo-price', '2.500');
+    type(el, 'combos-price', '2.500');
     await settle(el);
-    at(el, 'save-combo')!.click();
+    at(el, 'combos-save')!.click();
     await settle(el);
-    const said = words(at(el, 'combo-blocked-reason'));
+    const said = words(at(el, 'combos-blocked-reason'));
     expect(said, 'the refusal does not quote what was typed').toContain('2.500');
     expect(said, 'the refusal does not offer the grouped reading of THIS amount').toContain('2500');
     expect(said, 'the refusal does not offer the decimal reading of THIS amount').toContain('2,50');
@@ -1395,11 +1409,11 @@ describe('money is written into the field in the language of the hub, and read b
     const el = await mount();
     table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
     await settle(el);
-    type(el, 'combo-price', '1.5');
+    type(el, 'combos-price', '1.5');
     await settle(el);
-    at(el, 'combo-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    at(el, 'combos-price')!.dispatchEvent(new CustomEvent('ionBlur'));
     await settle(el);
-    expect(at(el, 'combo-price')!.value,
+    expect(at(el, 'combos-price')!.value,
       'the field does not settle on blur: the user only finds out what was saved afterwards').toBe('1,50');
   });
 
@@ -1407,11 +1421,11 @@ describe('money is written into the field in the language of the hub, and read b
     const el = await mount();
     table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
     await settle(el);
-    type(el, 'combo-price', '1.250');
+    type(el, 'combos-price', '1.250');
     await settle(el);
-    at(el, 'combo-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    at(el, 'combos-price')!.dispatchEvent(new CustomEvent('ionBlur'));
     await settle(el);
-    expect(at(el, 'combo-price')!.value,
+    expect(at(el, 'combos-price')!.value,
       'blur silently picked one of the two readings, which is the guess this rule exists to prevent')
       .toBe('1.250');
   });
@@ -1424,7 +1438,7 @@ describe('money is written into the field in the language of the hub, and read b
     const el = await mount();
     table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
     await settle(el);
-    const price = at(el, 'combo-price')!;
+    const price = at(el, 'combos-price')!;
     expect(price.getAttribute('type'), 'type=number empties itself in silence on an invalid value').toBe('text');
     expect(price.getAttribute('inputmode'), 'without inputmode=decimal a tablet offers the wrong keyboard').toBe('decimal');
   });
@@ -1513,18 +1527,18 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
     const el = await mount();
     await openMenu(el);
     for (const id of ['o1', 'o2', 'o3']) {
-      expect(inRow(el, id, 'choice-drag'), `«${id}» has no drag handle: the affordance every product ships`).toBeTruthy();
-      expect(inRow(el, id, 'choice-up'), `«${id}» lost its arrow: dragging alone is WCAG 2.2 F108`).toBeTruthy();
-      expect(inRow(el, id, 'choice-down'), `«${id}» lost its arrow: dragging alone is WCAG 2.2 F108`).toBeTruthy();
+      expect(inRow(el, id, 'drag'), `«${id}» has no drag handle: the affordance every product ships`).toBeTruthy();
+      expect(inRow(el, id, 'up'), `«${id}» lost its arrow: dragging alone is WCAG 2.2 F108`).toBeTruthy();
+      expect(inRow(el, id, 'down'), `«${id}» lost its arrow: dragging alone is WCAG 2.2 F108`).toBeTruthy();
     }
   });
 
   it('every course carries the same handle, and keeps its arrows too', async () => {
     const el = await mount();
     await openMenu(el);
-    const course = el.shadowRoot.querySelector('[data-test="course"][data-group-id="g1"]')!;
-    expect(course.querySelector('[data-test="course-drag"]'), 'a course cannot be dragged').toBeTruthy();
-    expect(course.querySelector('[data-test="course-up"]'), 'the course arrows were replaced by the handle').toBeTruthy();
+    const course = el.shadowRoot.querySelector('[data-testid="combos-course-row-g1"]')!;
+    expect(course.querySelector(`[data-testid="${inCourse('drag')}"]`), 'a course cannot be dragged').toBeTruthy();
+    expect(course.querySelector(`[data-testid="${inCourse('up')}"]`), 'the course arrows were replaced by the handle').toBeTruthy();
   });
 
   // 🔴 The one line that decides whether the gesture works at all on a touch screen, and the one
@@ -1552,7 +1566,7 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
   it('the handle is a finger-sized target like every other control of the row (combos#4)', async () => {
     const el = await mount();
     await openMenu(el);
-    expect(inRow(el, 'o1', 'choice-drag')!.classList.contains('icon-btn'),
+    expect(inRow(el, 'o1', 'drag')!.classList.contains('icon-btn'),
       'the handle keeps whatever size Ionic gives it: 28 px, next to four 44 px neighbours').toBe(true);
   });
 
@@ -1571,8 +1585,8 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
   it('dropping a choice on another slot writes the positions of everything it displaced', async () => {
     const el = await mount();
     await openMenu(el);
-    const rows = [...el.shadowRoot.querySelectorAll('[data-test="course"][data-group-id="g1"] [data-test="choice"]')];
-    await dragTo(el, inRow(el, 'o1', 'choice-drag')!, rows, 2);
+    const rows = [...el.shadowRoot.querySelectorAll('[data-testid="combos-course-row-g1"] li[data-testid^="combos-choice-row-"]')];
+    await dragTo(el, inRow(el, 'o1', 'drag')!, rows, 2);
 
     expect(choiceOrder(el), 'the drop did not move the choice').toEqual(['o2', 'o3', 'o1']);
     const writes = commands.filter((c) => c.name.startsWith('combos.options.'));
@@ -1587,11 +1601,11 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
   it('dropping a course on another slot does the same for the courses', async () => {
     const el = await mount();
     await openMenu(el);
-    const courses = [...el.shadowRoot.querySelectorAll('[data-test="course"]')];
-    const handle = courses[1].querySelector('[data-test="course-drag"]') as HTMLElement;
+    const courses = [...el.shadowRoot.querySelectorAll('section[data-testid^="combos-course-row-"]')];
+    const handle = courses[1].querySelector(`[data-testid="${inCourse('drag', 'g2')}"]`) as HTMLElement;
     await dragTo(el, handle, courses, 0);
 
-    expect([...el.shadowRoot.querySelectorAll('[data-test="course"]')].map((c) => c.getAttribute('data-group-id')),
+    expect([...el.shadowRoot.querySelectorAll('section[data-testid^="combos-course-row-"]')].map((c) => c.getAttribute('data-group-id')),
       'the course did not move').toEqual(['g2', 'g1']);
     const writes = commands.filter((c) => c.name === 'combos.groups.update');
     expect(writes.map((c) => [c.payload.group_id, c.payload.sort_order]).sort(),
@@ -1601,8 +1615,8 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
   it('dropping a row where it started writes nothing at all', async () => {
     const el = await mount();
     await openMenu(el);
-    const rows = [...el.shadowRoot.querySelectorAll('[data-test="course"][data-group-id="g1"] [data-test="choice"]')];
-    await dragTo(el, inRow(el, 'o2', 'choice-drag')!, rows, 1);
+    const rows = [...el.shadowRoot.querySelectorAll('[data-testid="combos-course-row-g1"] li[data-testid^="combos-choice-row-"]')];
+    await dragTo(el, inRow(el, 'o2', 'drag')!, rows, 1);
 
     expect(choiceOrder(el), 'a drop on its own slot moved something').toEqual(['o1', 'o2', 'o3']);
     expect(commands.filter((c) => c.name.startsWith('combos.options.')),
@@ -1612,9 +1626,9 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
   it('a cancelled drag puts the row back where it was, without writing', async () => {
     const el = await mount();
     await openMenu(el);
-    const rows = [...el.shadowRoot.querySelectorAll('[data-test="course"][data-group-id="g1"] [data-test="choice"]')];
+    const rows = [...el.shadowRoot.querySelectorAll('[data-testid="combos-course-row-g1"] li[data-testid^="combos-choice-row-"]')];
     layout(rows);
-    inRow(el, 'o1', 'choice-drag')!.dispatchEvent(pointer('pointerdown', 0));
+    inRow(el, 'o1', 'drag')!.dispatchEvent(pointer('pointerdown', 0));
     await settle(el);
     window.dispatchEvent(pointer('pointermove', 110));
     await settle(el);
@@ -1630,9 +1644,9 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
   it('a failed drop is SAID and the screen goes back to the truth on the server', async () => {
     const el = await mount();
     await openMenu(el);
-    const rows = [...el.shadowRoot.querySelectorAll('[data-test="course"][data-group-id="g1"] [data-test="choice"]')];
+    const rows = [...el.shadowRoot.querySelectorAll('[data-testid="combos-course-row-g1"] li[data-testid^="combos-choice-row-"]')];
     (globalThis as Record<string, any>).erplora.command = async () => { throw new Error(''); };
-    await dragTo(el, inRow(el, 'o1', 'choice-drag')!, rows, 2);
+    await dragTo(el, inRow(el, 'o1', 'drag')!, rows, 2);
 
     expect(el.shadowRoot.querySelector('ok-inline-feedback[tone="danger"]'),
       'the drop failed in silence and the screen looks reordered').toBeTruthy();
@@ -1644,8 +1658,8 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
     (globalThis as Record<string, any>).erplora.hasPermission = (p: string) => p !== 'combos.manage_combo';
     const el = await mount();
     await openMenu(el);
-    expect(inRow(el, 'o1', 'choice-drag'), 'a read-only user is offered a drag handle').toBeNull();
-    expect(el.shadowRoot.querySelector('[data-test="course-drag"]'), 'a read-only user can reorder the courses').toBeNull();
+    expect(inRow(el, 'o1', 'drag'), 'a read-only user is offered a drag handle').toBeNull();
+    expect(el.shadowRoot.querySelector(`[data-testid="${inCourse('drag')}"]`), 'a read-only user can reorder the courses').toBeNull();
   });
 });
 
@@ -1666,14 +1680,14 @@ describe('a course and a choice can also be dragged, and the arrows survive it',
 
 /** Opens the bulk picker of course `groupId`. */
 async function openBulk(el: Mounted, groupId = 'g1'): Promise<void> {
-  const course = el.shadowRoot.querySelector(`[data-test="course"][data-group-id="${groupId}"]`)!;
-  (course.querySelector('[data-test="bulk-add"]') as HTMLElement).click();
+  const course = el.shadowRoot.querySelector(`[data-testid="combos-course-row-${groupId}"]`)!;
+  (course.querySelector(`[data-testid="${inCourse('bulk-add', groupId)}"]`) as HTMLElement).click();
   await settle(el);
 }
 
 /** The row of `ref` inside the open bulk picker. */
 const bulkRow = (el: Mounted, ref: string) =>
-  el.shadowRoot.querySelector(`[data-test="bulk-row"][data-ref="${ref}"]`) as HTMLElement | null;
+  el.shadowRoot.querySelector(`[data-testid="combos-bulk-row-${ref}"]`) as HTMLElement | null;
 
 /** Ticks the row of `ref` the way ion-checkbox reports it. */
 async function tick(el: Mounted, ref: string, checked = true): Promise<void> {
@@ -1694,8 +1708,8 @@ describe('several articles are added to a course in one go', () => {
   it('each course offers adding SEVERAL articles, not only one at a time', async () => {
     const el = await mount();
     await openMenu(el);
-    const course = el.shadowRoot.querySelector('[data-test="course"][data-group-id="g1"]')!;
-    expect(course.querySelector('[data-test="bulk-add"]'),
+    const course = el.shadowRoot.querySelector('[data-testid="combos-course-row-g1"]')!;
+    expect(course.querySelector(`[data-testid="${inCourse('bulk-add')}"]`),
       'the only way in is one article at a time: the complaint every verified TPV answers').toBeTruthy();
   });
 
@@ -1715,7 +1729,7 @@ describe('several articles are added to a course in one go', () => {
     await openMenu(el);
     await openBulk(el);
     queried = [];
-    const search = at(el, 'bulk-search')!;
+    const search = at(el, 'combos-bulk-search')!;
     search.value = 'solo';
     search.dispatchEvent(new CustomEvent('ionInput', { detail: { value: 'solo' } }));
     await settle(el);
@@ -1730,7 +1744,7 @@ describe('several articles are added to a course in one go', () => {
     await tick(el, 'product:p2');
     await tick(el, 'service:s1');
     expect(translated, 'the button does not say how many articles are going in').toContain('ui.bulkAddCount');
-    expect(words(at(el, 'bulk-confirm')), 'the count is not in the label: the button says the same with 1 and with 40')
+    expect(words(at(el, 'combos-bulk-confirm')), 'the count is not in the label: the button says the same with 1 and with 40')
       .toContain('2');
   });
 
@@ -1740,7 +1754,7 @@ describe('several articles are added to a course in one go', () => {
     await openBulk(el);
     await tick(el, 'product:p2');
     await tick(el, 'service:s1');
-    at(el, 'bulk-confirm')!.click();
+    at(el, 'combos-bulk-confirm')!.click();
     await settle(el);
 
     const created = commands.filter((c) => c.name === 'combos.options.create');
@@ -1770,8 +1784,8 @@ describe('several articles are added to a course in one go', () => {
     // refusal from the handler left every assertion above green while the row went into the batch
     // anyway, straight into a unique violation.
     await tick(el, 'product:p1');
-    expect(words(at(el, 'bulk-confirm')), 'a row already in the course was counted in anyway').toContain('0');
-    at(el, 'bulk-confirm')!.click();
+    expect(words(at(el, 'combos-bulk-confirm')), 'a row already in the course was counted in anyway').toContain('0');
+    at(el, 'combos-bulk-confirm')!.click();
     await settle(el);
     expect(commands.filter((c) => c.name === 'combos.options.create'),
       'the tap on an already-added row put it in the batch: `ux_combos_choice_option` refuses it').toEqual([]);
@@ -1781,13 +1795,13 @@ describe('several articles are added to a course in one go', () => {
     const el = await mount();
     await openMenu(el);
     await openBulk(el);
-    const confirm = at(el, 'bulk-confirm')!;
+    const confirm = at(el, 'combos-bulk-confirm')!;
     expect(confirm.getAttribute('aria-disabled'), 'the empty picker pretends it can add something').toBe('true');
     expect(confirm.hasAttribute('disabled'), 'native `disabled` swallows the tap and the reason with it').toBe(false);
     confirm.click();
     await settle(el);
     expect(commands.filter((c) => c.name === 'combos.options.create'), 'it added nothing and wrote anyway').toEqual([]);
-    expect(at(el, 'bulk-blocked-reason'), 'the tap died without saying why').toBeTruthy();
+    expect(at(el, 'combos-bulk-blocked-reason'), 'the tap died without saying why').toBeTruthy();
   });
 
   it('a failure while adding is SAID, and what did land is reloaded from the server', async () => {
@@ -1796,7 +1810,7 @@ describe('several articles are added to a course in one go', () => {
     await openBulk(el);
     await tick(el, 'product:p2');
     (globalThis as Record<string, any>).erplora.command = async () => { throw new Error(''); };
-    at(el, 'bulk-confirm')!.click();
+    at(el, 'combos-bulk-confirm')!.click();
     await settle(el);
 
     expect(translated, 'a rejection with no sentence of its own is shown raw').toContain('ui.errSaveOption');
@@ -1810,12 +1824,12 @@ describe('several articles are added to a course in one go', () => {
     await openMenu(el);
     await openBulk(el);
     await tick(el, 'product:p2');
-    at(el, 'bulk-confirm')!.click();
+    at(el, 'combos-bulk-confirm')!.click();
     await settle(el);
     expect((el.shadowRoot.querySelector('ion-modal') as HTMLElement & { isOpen?: boolean }).isOpen,
       'the picker stayed open after adding').toBe(false);
     await openBulk(el);
-    expect(words(at(el, 'bulk-confirm')), 'reopening the picker brought back the previous ticks').toContain('0');
+    expect(words(at(el, 'combos-bulk-confirm')), 'reopening the picker brought back the previous ticks').toContain('0');
   });
 
   it('cancelling adds nothing and forgets the ticks too', async () => {
@@ -1823,11 +1837,11 @@ describe('several articles are added to a course in one go', () => {
     await openMenu(el);
     await openBulk(el);
     await tick(el, 'product:p2');
-    at(el, 'bulk-cancel')!.click();
+    at(el, 'combos-bulk-cancel')!.click();
     await settle(el);
     expect(commands.filter((c) => c.name === 'combos.options.create'), 'cancelling added the articles anyway').toEqual([]);
     await openBulk(el);
-    expect(words(at(el, 'bulk-confirm')), 'the cancelled ticks came back').toContain('0');
+    expect(words(at(el, 'combos-bulk-confirm')), 'the cancelled ticks came back').toContain('0');
   });
 
   it('with no catalogue installed the picker SAYS so instead of looking like an empty catalogue', async () => {
@@ -1835,7 +1849,7 @@ describe('several articles are added to a course in one go', () => {
     const el = await mount();
     await openMenu(el);
     await openBulk(el);
-    expect(el.shadowRoot.querySelector('[data-test="bulk-empty"]'),
+    expect(el.shadowRoot.querySelector('[data-testid="combos-bulk-empty"]'),
       'the picker shows a blank list, which reads as "you have no articles"').toBeTruthy();
     expect(translated, 'the absence of the owner module is not said in words').toContain('ui.catalogueMissing');
   });
@@ -1851,7 +1865,7 @@ describe('several articles are added to a course in one go', () => {
     };
     const el = await mount();
     await openMenu(el);
-    expect(el.shadowRoot.querySelector('[data-test="catalogue-error"]'),
+    expect(el.shadowRoot.querySelector('[data-testid="combos-catalogue-error"]'),
       'a broken catalogue looks exactly like an empty one').toBeTruthy();
     expect(translated, 'the failure is shown as the raw exception').toContain('ui.errLoadCatalogue');
   });
@@ -1865,14 +1879,14 @@ describe('several articles are added to a course in one go', () => {
     const el = await mount();
     await openMenu(el);
     await openBulk(el);
-    expect(at(el, 'bulk-confirm')!.getAttribute('style') ?? '',
+    expect(at(el, 'combos-bulk-confirm')!.getAttribute('style') ?? '',
       'the blocked confirm button relies on a stylesheet that does not reach a reparented modal')
       .toMatch(/opacity/);
     expect(bulkRow(el, 'product:p1')!.getAttribute('style') ?? '',
       'a row that cannot be ticked looks exactly like one that can').toMatch(/opacity/);
 
     await tick(el, 'product:p2');
-    expect(at(el, 'bulk-confirm')!.getAttribute('style') ?? '',
+    expect(at(el, 'combos-bulk-confirm')!.getAttribute('style') ?? '',
       'the button stays dimmed once it CAN add something').not.toMatch(/opacity/);
   });
 
@@ -1892,7 +1906,7 @@ describe('several articles are added to a course in one go', () => {
     await openBulk(el);
     expect(modal()!.isOpen, 'opening the picker did not open the modal').toBe(true);
 
-    at(el, 'bulk-cancel')!.click();
+    at(el, 'combos-bulk-cancel')!.click();
     await settle(el);
     expect(modal(), 'closing the picker removed the element instead of dismissing it').toBeTruthy();
     expect(modal()!.isOpen, 'the modal stays open after the picker was closed').toBe(false);
@@ -1911,11 +1925,11 @@ describe('several articles are added to a course in one go', () => {
     const el = await mount();
     await openMenu(el);
     await openBulk(el);
-    at(el, 'bulk-cancel')!.click();
+    at(el, 'combos-bulk-cancel')!.click();
     await settle(el);
     expect((el.shadowRoot.querySelector('ion-modal') as HTMLElement & { isOpen?: boolean }).isOpen,
       'the picker is still open').toBe(false);
-    expect(at(el, 'bulk-confirm'),
+    expect(at(el, 'combos-bulk-confirm'),
       'the modal body is swapped for `nothing` when it closes: in a browser that orphans the rows in <body> and the next open stacks a second catalogue on top')
       .toBeTruthy();
   });
@@ -1924,7 +1938,7 @@ describe('several articles are added to a course in one go', () => {
     const el = await mount();
     await openMenu(el);
     await openBulk(el);
-    at(el, 'back-to-menus')!.click();
+    at(el, 'combos-back')!.click();
     await settle(el);
     const modal = el.shadowRoot.querySelector('ion-modal') as (HTMLElement & { isOpen?: boolean }) | null;
     expect(modal?.isOpen ?? false, 'the picker of a menu that was left behind is still open over the list').toBe(false);
@@ -1934,6 +1948,6 @@ describe('several articles are added to a course in one go', () => {
     (globalThis as Record<string, any>).erplora.hasPermission = (p: string) => p !== 'combos.manage_combo';
     const el = await mount();
     await openMenu(el);
-    expect(el.shadowRoot.querySelector('[data-test="bulk-add"]'), 'a read-only user is offered a bulk add').toBeNull();
+    expect(el.shadowRoot.querySelector(`[data-testid="${inCourse('bulk-add')}"]`), 'a read-only user is offered a bulk add').toBeNull();
   });
 });
