@@ -380,6 +380,11 @@ export class ErpCombosMenus extends LitElement {
 
   // ── Combo form (lives in the data-table `create` panel, always projected) ───────────────────
   @state() private editing: Combo | null = null;
+  /** pm#450: whether the table's panel HEADER already carries the editing title (OutfitKit
+   *  ≥ 0.1.94, outfitkit#150). Set only after checking the rendered dialog — never assumed — so
+   *  an older shell (hub:stable ships 0.1.73, which ignores the `title` and keeps «New») still
+   *  gets the fallback title in the form body. */
+  @state() private editTitleInHeader = false;
   @state() private fName = '';
   @state() private fKitchenName = '';
   @state() private fPrice = '';
@@ -467,6 +472,21 @@ export class ErpCombosMenus extends LitElement {
     // module reload) would leave them pointing at a detached component for the rest of the session.
     this.endDrag();
     super.disconnectedCallback();
+  }
+
+  /** Wired natively on the shadow root, not with a Lit `@click` on the tag: `<ok-data-table>`
+   *  carries `testid`, not `data-testid` (outfitkit#143), and it is re-created each time the user
+   *  comes back from a menu builder, which a listener on the first table would not survive. */
+  firstUpdated(): void {
+    this.renderRoot.addEventListener('click', (e) => this.onTableClick(e));
+  }
+
+  /** pm#450: the table's «Add» emits no event and keeps our form state; after an edit it would
+   *  show the edited menu under a «New» header, and the submit would UPDATE it. */
+  private onTableClick(e: Event): void {
+    if (!this.editing) return;
+    const addId = 'combos-table-add';
+    if (e.composedPath().some((n) => n instanceof HTMLElement && n.dataset.testid === addId)) this.resetComboForm();
   }
 
   // ── Reordering by dragging, which never replaces the arrows (combos#6) ──────────────────────
@@ -664,9 +684,19 @@ export class ErpCombosMenus extends LitElement {
     ];
   }
 
-  private dataTable(): { open(p?: 'filters' | 'create'): void; close(): void } | null {
+  private dataTable(): {
+    open(p?: 'filters' | 'create' | 'edit', opts?: { title?: string }): void;
+    close(): void;
+    updateComplete?: Promise<unknown>;
+    shadowRoot: ShadowRoot | null;
+  } | null {
     return this.renderRoot.querySelector('ok-data-table') as
-      | { open(p?: 'filters' | 'create'): void; close(): void }
+      | {
+          open(p?: 'filters' | 'create' | 'edit', opts?: { title?: string }): void;
+          close(): void;
+          updateComplete?: Promise<unknown>;
+          shadowRoot: ShadowRoot | null;
+        }
       | null;
   }
 
@@ -731,7 +761,17 @@ export class ErpCombosMenus extends LitElement {
     this.comboReason = ''; this.comboError = '';
   }
 
-  private startEditCombo(combo: Combo): void {
+  /**
+   * pm#450: Cancel from an edit whose header carried the title. The header stays labelled for
+   * the edit that is being abandoned, so re-opening the panel as `create` puts it back to «New»
+   * — header and clean form agree again.
+   */
+  private cancelComboEdit(): void {
+    this.resetComboForm();
+    this.dataTable()?.open('create');
+  }
+
+  private async startEditCombo(combo: Combo): Promise<void> {
     if (!can('combos.manage_combo')) return;
     this.editing = combo;
     this.fName = combo.name;
@@ -742,7 +782,13 @@ export class ErpCombosMenus extends LitElement {
     this.fActive = Boolean(combo.is_active);
     this.fSortOrder = String(combo.sort_order ?? 0);
     this.comboReason = ''; this.comboError = '';
-    this.dataTable()?.open('create');
+    const title = t('ui.editMenuTitle', { name: combo.name });
+    const table = this.dataTable();
+    table?.open('edit', { title });
+    await table?.updateComplete;
+    // OutfitKit < 0.1.94 ignores the title and keeps «New»: only drop the in-form title when the
+    // header REALLY carries it (the dialog is labelled with it).
+    this.editTitleInHeader = table?.shadowRoot?.querySelector('[role="dialog"]')?.getAttribute('aria-label') === title;
   }
 
   /**
@@ -1252,7 +1298,11 @@ export class ErpCombosMenus extends LitElement {
     const editing = this.editing;
     const blockedKey = this.comboBlockedKey;
     return html`<form slot="create" class="form" data-testid="combos-form" @submit=${(e: Event) => { e.preventDefault(); this.saveCombo(); }}>
-      <h3>${editing ? t('ui.editMenuTitle', { name: editing.name }) : t('ui.newMenuTitle')}</h3>
+      <!-- pm#450: when the header already carries the editing title, repeating it in the form
+           body is the duplicate this issue exists to remove. -->
+      ${editing && this.editTitleInHeader
+        ? nothing
+        : html`<h3>${editing ? t('ui.editMenuTitle', { name: editing.name }) : t('ui.newMenuTitle')}</h3>`}
 
       <ion-input mode="md" fill="outline" data-testid="combos-name" label=${t('ui.fieldName')} label-placement="floating"
         .value=${this.fName}
@@ -1314,7 +1364,7 @@ export class ErpCombosMenus extends LitElement {
       })}
       ${this.comboReason ? html`<p class="reason" data-testid="combos-blocked-reason">${this.comboReason}</p>` : nothing}
       ${this.comboError ? html`<ok-inline-feedback data-testid="combos-form-error" tone="danger" icon="alert-circle-outline">${this.comboError}</ok-inline-feedback>` : nothing}
-      ${editing ? html`<ion-button size="small" data-testid="combos-cancel" @click=${() => this.resetComboForm()}>${t('ui.cancel')}</ion-button>` : nothing}
+      ${editing ? html`<ion-button size="small" data-testid="combos-cancel" @click=${() => this.cancelComboEdit()}>${t('ui.cancel')}</ion-button>` : nothing}
     </form>`;
   }
 
