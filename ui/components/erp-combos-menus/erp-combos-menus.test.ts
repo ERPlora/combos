@@ -1951,3 +1951,131 @@ describe('several articles are added to a course in one go', () => {
     expect(el.shadowRoot.querySelector(`[data-testid="${inCourse('bulk-add')}"]`), 'a read-only user is offered a bulk add').toBeNull();
   });
 });
+
+// pm#450 (outfitkit#150): editing a menu opened the panel with open('create'), so its header said
+// «New» while the body said «Menú · Menú del día». The table knows an «edit» mode and takes the
+// whole title: the screen asks for it and drops the repeated line from the body.
+describe('editing a menu titles the panel header, not its body (pm#450)', () => {
+  type Table = HTMLElement & {
+    open: (panel?: unknown, opts?: { title?: string }) => void;
+    panel?: string;
+    shadowRoot: ShadowRoot;
+  };
+  const dt = (el: Mounted) => table(el) as unknown as Table;
+  const TITLE = 'Menú · Menú del día';
+  const edit = async (el: Mounted) => {
+    dt(el).dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+  };
+  const form = (el: Mounted) => at(el, 'combos-form')!;
+  const addButton = (el: Mounted) =>
+    dt(el).shadowRoot.querySelector('[data-testid="combos-table-add"]') as HTMLElement | null;
+
+  // The header only carries the title with OutfitKit ≥ 0.1.94 (outfitkit#150); an older shell
+  // (hub:stable ships 0.1.73) ignores it and keeps «New». The body line only goes away when the
+  // table REALLY painted the title — its dialog is labelled with it — never on faith. Like the real
+  // Lit table, open() only schedules the render: the label lands on the next microtask and
+  // `updateComplete` resolves once it has.
+  const shellTable = (el: Mounted, honoursTitle: boolean) => {
+    const t = dt(el);
+    const dialog = document.createElement('aside');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-label', 'Form');
+    const root = document.createElement('div');
+    root.appendChild(dialog);
+    Object.defineProperty(t, 'shadowRoot', { value: root, configurable: true });
+    let rendered: Promise<void> = Promise.resolve();
+    Object.defineProperty(t, 'updateComplete', { get: () => rendered, configurable: true });
+    const calls: unknown[][] = [];
+    t.open = (panel?: unknown, opts?: { title?: string }) => {
+      calls.push(opts === undefined ? [panel] : [panel, opts]);
+      rendered = Promise.resolve().then(() => {
+        dialog.setAttribute('aria-label', honoursTitle && opts?.title ? opts.title : 'New');
+      });
+    };
+    return calls;
+  };
+
+  it("opens the panel with open('edit', { title }) — the menu name in the header", async () => {
+    const el = await mount();
+    const calls = shellTable(el, true);
+    await edit(el);
+    expect(calls).toEqual([['edit', { title: TITLE }]]);
+  });
+
+  it('the form body no longer repeats the editing title once the header carries it', async () => {
+    const el = await mount();
+    shellTable(el, true);
+    await edit(el);
+    expect(words(form(el))).not.toContain(TITLE);
+    expect(words(form(el)), 'an edit form must not call itself «new»').not.toContain('Menú nuevo');
+    expect(at(el, 'combos-name')!.value, 'the form is still the edit form').toBe('Menú del día');
+  });
+
+  it('with a shell whose table ignores the title (OutfitKit < 0.1.94), the body keeps the editing line', async () => {
+    const el = await mount();
+    shellTable(el, false);
+    await edit(el);
+    expect(words(form(el)), 'the header says «New»: without this line nothing says it is an edit').toContain(TITLE);
+  });
+
+  it('«Cancel» in the form puts the panel back to «New», so header and clean form agree', async () => {
+    const el = await mount();
+    const calls = shellTable(el, true);
+    await edit(el);
+    at(el, 'combos-cancel')!.click();
+    await settle(el);
+    expect(calls.at(-1), 'the header would still say «Menú · Menú del día» over an empty form').toEqual(['create']);
+    expect(at(el, 'combos-name')!.value).toBe('');
+    expect(words(form(el))).toContain('Menú nuevo');
+    expect(words(form(el))).not.toContain(TITLE);
+  });
+
+  it('«Add» after an edit opens a CLEAN create form, whose submit CREATES', async () => {
+    const el = await mount();
+    await edit(el);
+    const add = addButton(el);
+    expect(add, 'the table paints its «Add» button').toBeTruthy();
+    add!.click();
+    await settle(el);
+    expect(at(el, 'combos-name')!.value, 'the edited menu under a «New» header').toBe('');
+    expect(dt(el).panel, '«Add» must leave its panel open').toBe('create');
+    type(el, 'combos-name', 'Menú noche');
+    type(el, 'combos-price', '20');
+    type(el, 'combos-tax-category', 'reduced');
+    await settle(el);
+    commands = [];
+    at(el, 'combos-save')!.click();
+    await settle(el);
+    expect(commands.map((c) => c.name), 'a submit here would UPDATE the edited menu').toEqual(['combos.combos.create']);
+  });
+
+  it('«Add» still drops the edit after visiting a menu builder (the table is painted anew)', async () => {
+    const el = await mount();
+    await openMenu(el);
+    at(el, 'combos-back')!.click();
+    await settle(el);
+    await edit(el);
+    addButton(el)!.click();
+    await settle(el);
+    expect(at(el, 'combos-name')!.value, 'a listener bound to the first table died with it').toBe('');
+  });
+
+  it('a click INSIDE the edit form does not drop the edit — only «Add» does', async () => {
+    const el = await mount();
+    await edit(el);
+    at(el, 'combos-name')!.click();
+    dt(el).click();
+    await settle(el);
+    expect(at(el, 'combos-name')!.value).toBe('Menú del día');
+  });
+
+  it('«Add» with no edit in progress keeps what was typed', async () => {
+    const el = await mount();
+    type(el, 'combos-name', 'Menú noche');
+    await settle(el);
+    addButton(el)!.click();
+    await settle(el);
+    expect(at(el, 'combos-name')!.value).toBe('Menú noche');
+  });
+});
