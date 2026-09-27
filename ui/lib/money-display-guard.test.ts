@@ -97,17 +97,20 @@ describe('money display goes through the shared formatter (pm#289)', () => {
   it('no hand-formatted amount in ui/ outside the triaged non-display cases', () => {
     const uiRoot = join(moduleRoot(), 'ui');
     const found: string[] = [];
-    const sources = uiSources(uiRoot);
     // The control that keeps this from passing vacuously: the one screen that paints an amount
     // (the Price column, a menu's head price and an option's supplement, all in the menus screen)
-    // is always scanned.
-    expect(sources.map((f) => f.slice(uiRoot.length + 1))).toEqual(
-      expect.arrayContaining(['components/erp-combos-menus/erp-combos-menus.ts']),
-    );
-    for (const f of sources) {
+    // must be scanned AND the code the detector reads (comments stripped) must still hold those
+    // three `erplora().formatMoney(` calls — a scan over empty or over-stripped content would
+    // otherwise stay green forever (rv-appointments-226, rv-pricing-53). The CALL, not the bare
+    // name: the screen's `formatMoney(minor: number)` type declaration survives a greedy strip.
+    const moneyCalls: Record<string, number> = {};
+    for (const f of uiSources(uiRoot)) {
       const rel = f.slice(uiRoot.length + 1);
-      for (const h of handFormattedMoney(readFileSync(f, 'utf8'))) found.push(`${rel}: ${h}`);
+      const src = readFileSync(f, 'utf8');
+      moneyCalls[rel] = stripComments(src).split('erplora().formatMoney(').length - 1;
+      for (const h of handFormattedMoney(src)) found.push(`${rel}: ${h}`);
     }
+    expect(moneyCalls['components/erp-combos-menus/erp-combos-menus.ts'] ?? 0).toBeGreaterThanOrEqual(3);
     const unexpected = unexpectedHits(found, NOT_DISPLAY);
     expect(
       unexpected,
@@ -165,10 +168,16 @@ describe('OutfitKit comes in by entry point, not by the barrel (bundle size)', (
   it('no value import from `@erplora/outfitkit` in ui/', () => {
     const uiRoot = join(moduleRoot(), 'ui');
     const found: string[] = [];
+    // Non-vacuity control: the scan must read at least one OutfitKit import (the menus screen
+    // imports its entry points and `import type` from the barrel), or it would pass on empty content.
+    let okImports = 0;
     for (const f of uiSources(uiRoot)) {
       const rel = f.slice(uiRoot.length + 1);
-      for (const h of barrelValueImports(readFileSync(f, 'utf8'))) found.push(`${rel}: ${h}`);
+      const src = readFileSync(f, 'utf8');
+      if (stripComments(src).includes("'@erplora/outfitkit")) okImports++;
+      for (const h of barrelValueImports(src)) found.push(`${rel}: ${h}`);
     }
+    expect(okImports, 'the scan read no OutfitKit import: it would pass on empty files').toBeGreaterThan(0);
     expect(found, 'import it from @erplora/outfitkit/<component> (the barrel drags every ok-* into dist/)').toEqual([]);
   });
 
