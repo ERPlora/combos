@@ -407,10 +407,15 @@ describe('the menu list states supply_kind with a short value, the form keeps th
       for (const kind of ['service', 'goods'] as const) {
         const short = lookup(catalog, SHORT[kind]);
         expect(typeof short, `${lang}: ${SHORT[kind]} is missing`).toBe('string');
+        // A blank value would paint an empty cell: the row would not say how it is sold.
+        expect((short as string).trim(), `${lang}: ${SHORT[kind]} is blank`).not.toBe('');
         expect(short, `${lang}: ${SHORT[kind]} repeats the form sentence`).not.toBe(lookup(catalog, LONG[kind]));
         // The widest of the two, 15 characters, fits the column at 1440 px without the "…".
         expect((short as string).length, `${lang}: ${SHORT[kind]} is a sentence, not a value`).toBeLessThanOrEqual(15);
       }
+      // The two kinds are billed differently: the column must tell them apart at a glance.
+      expect(lookup(catalog, SHORT.service), `${lang}: both kinds read the same`)
+        .not.toBe(lookup(catalog, SHORT.goods));
     }
   });
 });
