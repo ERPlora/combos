@@ -1608,6 +1608,27 @@ describe('typed money is read by the shared toolkit piece, and this module decid
     expect((await addChoiceTyped(el, '  '))?.payload.price_delta).toBe(0);
   });
 
+  // rv-combos-26: the readings are formatted in the HUB locale, not in English. `2500` alone is
+  // also inside «2500.00», so the es decimals are what proves it.
+  it('the two readings of an ambiguous price are written in the hub locale (es)', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '2.500')).toBeUndefined();
+    const said = words(at(el, 'combos-blocked-reason'));
+    expect(said, 'the grouped reading is not in the hub locale').toContain('2500,00');
+    expect(said, 'the decimal reading is not in the hub locale').toContain('2,50');
+  });
+
+  // rv-combos-26: the supplement answers an undecidable amount with ITS two readings too.
+  it('an ambiguous supplement is refused quoting what was typed and its two readings', async () => {
+    const el = await mount();
+    await openMenu(el);
+    expect(await addChoiceTyped(el, ' 2.500 '), 'a `2.500` supplement was guessed and added').toBeUndefined();
+    const said = words(at(el, inCourse('option-blocked-reason')));
+    expect(said, 'the refusal does not quote what was typed').toContain('«2.500»');
+    expect(said, 'the refusal does not offer the grouped reading').toContain('2500,00');
+    expect(said, 'the refusal does not offer the decimal reading').toContain('2,50');
+  });
+
   // cash_register-wt-521: a helper that detaches `t` from the client (`const tr = c.t; tr(...)`)
   // loses `this`, and the SDK's `t` reads `this.locale` — a TypeError on every refusal and a mute
   // screen. The arrow-function double above cannot see it; this client's `t` is a METHOD.
