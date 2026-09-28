@@ -95,6 +95,7 @@
     "errDuplicateArticle": "This course already offers that article. To let it be picked twice, switch on «the same option may be picked more than once».",
     "errAmbiguousAmount": "This amount can be read in two ways: «{typed}» could be {grouped} or {decimal}. Write the decimals so there is no doubt.",
     "errNotAnAmount": "This is not an amount. Type a figure, for example 12.50.",
+    "errNegativePrice": "A menu price cannot be below zero. To make a choice cheaper, give it a negative supplement instead.",
     "errSaveMenu": "The menu could not be saved.",
     "errSaveCourse": "The course could not be saved.",
     "errSaveOption": "The choice could not be saved.",

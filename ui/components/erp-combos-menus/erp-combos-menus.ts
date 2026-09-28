@@ -5,7 +5,8 @@ import '@erplora/outfitkit/ok-data-table';
 import '@erplora/outfitkit/ok-inline-feedback';
 import '@erplora/outfitkit/ok-combo';
 import type { DataTableColumn, DataTableAction } from '@erplora/outfitkit';
-import { createListController, dataTableLabels, majorToMinor, minorToMajor } from '@erplora/module-sdk';
+import { createListController, dataTableLabels } from '@erplora/module-sdk';
+import { formatMoneyInput, normaliseMoneyInput, parseMoneyInput } from '@erplora/module-toolkit/money-input';
 import type { ListController, ListClient, ListParams, ListPage } from '@erplora/module-sdk';
 import esLocale from '../../../locales/es.json';
 import enLocale from '../../../locales/en.json';
@@ -33,6 +34,7 @@ interface ErploraClientLike extends ListClient {
   on(event: string, cb: (payload: unknown) => void): () => void;
   hasPermission?(permission: string): boolean;
   formatMoney(minor: number): string;
+  currency?: string;
   currencyDecimals?: number;
   locale: string;
   t(catalog: Record<string, unknown>, key: string, params?: Record<string, unknown>): string;
@@ -71,94 +73,76 @@ const t = (key: string, params?: Record<string, unknown>): string => erplora().t
 /** Decimals of the hub currency. NOT a hardcoded 2: in JPY they are 0 and `*100` overcharges 100x. */
 const decimals = (): number => erplora().currencyDecimals ?? 2;
 
-/** What a typed amount turned out to be — or the i18n key of why it could not be read. */
-type Amount = { ok: true; minor: number } | { ok: false; key: string };
+/**
+ * Which money field an amount was typed into. The SIGN is the only thing this module decides on
+ * top of the shared reading: a menu price is never negative (CHECK price >= 0 in 001_init.sql,
+ * `minimum: 0` in its schemas), a supplement may be — a cheaper substitution is a real menu.
+ */
+type AmountField = 'price' | 'supplement';
+
+/** What a typed amount turned out to be — or the i18n key (and its words) of why it cannot be used. */
+type Amount = { ok: true; minor: number } | { ok: false; key: string; params?: Record<string, unknown> };
 
 /**
- * A typed amount → minor units, in a till used in Spain (combos#3).
+ * A typed amount → minor units of the hub currency (combos#3, pm#521).
  *
- * The old version was `String(typed).replace(',', '.')`: it handled the comma a Spanish keyboard
- * produces, and NOTHING else. `1.250,50` — verbatim what the row two centimetres above prints,
- * and since hub#1090 money groups ALWAYS, so it is the normal case — became `1.250.50`, `Number`
- * answered NaN, and NaN landed in an INTEGER column as a silent 0. The menu saved itself FREE
- * with no error and nothing in the console.
+ * The READING is the toolkit's (`@erplora/module-toolkit/money-input`): combos#7 wrote it here
+ * first, from the market (12+ references and their forums, combos#3), and combos#9 moved it out so
+ * every module reads money the same way. Both separators; the hub currency, spaces and NBSP / NNBSP
+ * cleaned away; letters glued to the figure, accounting brackets, a minus behind the digits or
+ * another currency refused; and a lone separator followed by three digits (`1.250`: 1250 or 1,25,
+ * 1000x apart) refused with BOTH readings instead of guessed.
  *
- * The rule, decided from the market (12+ references and their forums, written into combos#3):
+ * What stays here is what only this module knows:
  *
- *  * BOTH separators, always. Odoo's oldest complaint is accepting only the active language's
- *    (`6.35` saved as 635); Business Central shipped an entire release feature to stop doing it
- *    in Spain; Firefox resolved its own bug by falling back to the English reading.
- *  * Two DIFFERENT separators → the LAST one is the decimal, the other is grouping. That is what
- *    makes a pasted `1.250,50` and a pasted `1,250.50` both mean 1250,50.
- *  * The same separator more than once → it can only be grouping (`1.250.000`).
- *  * Anything that is not a digit or a separator is cleaned away: currency symbol, plain spaces,
- *    and NBSP / NNBSP / thin space. The narrow no-break space is the one that broke Odoo in
- *    French (odoo#106534), and `Intl` emits it, so it arrives on real pastes.
- *
- * 🔴 And ONE case is refused instead of guessed: a lone separator followed by exactly three
- * digits, in a currency that does not have three decimals. `1.250` is 1250 to the Spaniard who
- * typed it and 1,25 to a parser told "a lone separator is always decimal", and the two readings
- * are 1000x apart. There is no safe guess, so the screen says so in words — the same contract as
- * the CHECK constraints: what cannot be accepted is EXPLAINED, never silently reinterpreted.
+ *  * an EMPTY field is 0 — the price and the supplement are `NOT NULL DEFAULT 0`, and nothing
+ *    typed means nothing charged on top;
+ *  * a negative PRICE is refused in words here, before the server answers with a raw schema
+ *    detail; a negative SUPPLEMENT keeps its sign.
  */
-function parseAmount(typed: unknown, d: number): Amount {
-  const raw = String(typed ?? '').trim();
-  if (!raw) return { ok: true, minor: 0 };
-  // The sign is read BEFORE cleaning, because cleaning is what removes it.
-  const negative = raw.startsWith('-');
-  const text = raw.replace(/[^\d.,]/g, '');
-  if (!text) return { ok: false, key: 'ui.errNotAnAmount' };
-
-  const dots = (text.match(/\./g) ?? []).length;
-  const commas = (text.match(/,/g) ?? []).length;
-  let normalised: string;
-
-  if (dots && commas) {
-    const dec = text.lastIndexOf('.') > text.lastIndexOf(',') ? '.' : ',';
-    const grp = dec === '.' ? ',' : '.';
-    normalised = text.split(grp).join('').replace(dec, '.');
-  } else if (dots + commas === 0) {
-    normalised = text;
-  } else {
-    const sep = dots ? '.' : ',';
-    const tail = text.slice(text.lastIndexOf(sep) + 1);
-    if (dots + commas > 1) normalised = text.split(sep).join('');
-    else if (tail.length === 3 && d !== 3) return { ok: false, key: 'ui.errAmbiguousAmount' };
-    else normalised = text.replace(sep, '.');
+function readAmount(typed: unknown, field: AmountField): Amount {
+  const c = erplora();
+  const d = decimals();
+  const raw = String(typed ?? '');
+  const read = parseMoneyInput(raw, d, { currency: c.currency || undefined, locale: c.locale });
+  if (read.ok) {
+    const minor = read.minor ?? 0;
+    if (minor < 0 && field === 'price') return { ok: false, key: 'ui.errNegativePrice' };
+    return { ok: true, minor };
   }
-
-  const n = Number(normalised);
-  if (!Number.isFinite(n)) return { ok: false, key: 'ui.errNotAnAmount' };
-  return { ok: true, minor: majorToMinor(negative ? -n : n, d) };
+  if (read.code === 'ambiguous_amount') {
+    // What they actually wrote and THE TWO READINGS OF IT, in the hub's locale, so the person can
+    // copy the one they meant straight back into the field. Not a canned example: quoting
+    // somebody else's number reads like a bug and teaches nothing.
+    return {
+      ok: false,
+      key: 'ui.errAmbiguousAmount',
+      params: {
+        typed: raw.trim(),
+        grouped: formatMoneyInput(read.readings.grouped, d, c.locale),
+        decimal: formatMoneyInput(read.readings.decimal, d, c.locale),
+      },
+    };
+  }
+  return { ok: false, key: 'ui.errNotAnAmount' };
 }
 
-/** The amount, or 0 — for the callers that have already checked it can be read. */
-function amountToMinor(typed: unknown): number {
-  const parsed = parseAmount(typed, decimals());
-  return parsed.ok ? parsed.minor : 0;
+/** The amount — for the callers that have already checked it can be used. */
+function amountToMinor(typed: unknown, field: AmountField): number {
+  const read = readAmount(typed, field);
+  return read.ok ? read.minor : 0;
 }
 
 /** Why this typed amount cannot be used, as an i18n key — or '' when it can. */
-function amountBlockedKey(typed: unknown): string {
-  const parsed = parseAmount(typed, decimals());
-  return parsed.ok ? '' : parsed.key;
+function amountBlockedKey(typed: unknown, field: AmountField): string {
+  const read = readAmount(typed, field);
+  return read.ok ? '' : read.key;
 }
 
-/**
- * The words the refusal is built from: what was typed, and THE TWO READINGS OF IT.
- *
- * Not a canned example. The first version quoted a fixed «1250 or 1,25» whatever the amount was,
- * so typing 2.500 was answered with a sentence about somebody else's number — which reads like a
- * bug and teaches nothing. Both readings are formatted in the hub's locale, so the person can
- * copy the one they meant straight back into the field.
- */
-function amountReadings(typed: unknown): Record<string, unknown> {
-  const raw = String(typed ?? '').trim();
-  const d = decimals();
-  const digitsOnly = raw.replace(/[^\d]/g, '');
-  const grouped = minorToInput(majorToMinor(digitsOnly || '0', d));
-  const decimal = minorToInput(majorToMinor(raw.replace(/[^\d.,]/g, '').replace(',', '.'), d));
-  return { typed: raw, grouped, decimal };
+/** The words the refusal of this typed amount is built from (none when it can be used). */
+function amountReadings(typed: unknown, field: AmountField): Record<string, unknown> {
+  const read = readAmount(typed, field);
+  return read.ok ? {} : read.params ?? {};
 }
 
 /**
@@ -167,17 +151,12 @@ function amountReadings(typed: unknown): Record<string, unknown> {
  *
  *  * the decimals come from the currency, so the field never shows a different scale than the
  *    money it edits (in JPY there are none, and 1999 is 1999 yen);
- *  * NO GROUPING. `useGrouping:false` is not a nicety: `1.250,50` inside an editable field is the
- *    single cause of the x10 Business Central had to fix for Spain and of the field Odoo blanked
- *    (odoo#19357), and a field whose own output does not survive being read back is broken by
- *    design. Grouping belongs on the READ-ONLY surfaces, which is where hub#1090 put it.
+ *  * NO GROUPING. `1.250,50` inside an editable field is the single cause of the x10 Business
+ *    Central had to fix for Spain and of the field Odoo blanked (odoo#19357), and a field whose
+ *    own output does not survive being read back is broken by design. Grouping belongs on the
+ *    READ-ONLY surfaces, which is where hub#1090 put it.
  */
-const minorToInput = (minor: number): string => {
-  const d = decimals();
-  return new Intl.NumberFormat(erplora().locale || 'en', {
-    minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false,
-  }).format(minorToMajor(minor, d));
-};
+const minorToInput = (minor: number): string => formatMoneyInput(minor, decimals(), erplora().locale);
 
 /**
  * What the field should show once the person leaves it. Unreadable input is left EXACTLY as typed:
@@ -185,9 +164,8 @@ const minorToInput = (minor: number): string => {
  * ambiguous amount, which is the guess this whole section exists to avoid.
  */
 function normaliseOnBlur(typed: string): string {
-  if (!typed.trim()) return typed;
-  const parsed = parseAmount(typed, decimals());
-  return parsed.ok ? minorToInput(parsed.minor) : typed;
+  const c = erplora();
+  return normaliseMoneyInput(typed, decimals(), c.locale, c.currency || undefined);
 }
 
 /** The two catalogues a combo component can come from, each with the module that owns it. */
@@ -803,7 +781,7 @@ export class ErpCombosMenus extends LitElement {
     if (this.fSupplyKind === 'service' && !this.fTaxCategory.trim()) return 'ui.errNoTaxCategory';
     // An amount that cannot be read is REFUSED, never coerced to 0 (combos#3): a menu that saves
     // itself free because a paste was misread is the most expensive kind of silence there is.
-    const price = amountBlockedKey(this.fPrice);
+    const price = amountBlockedKey(this.fPrice, 'price');
     if (price) return price;
     return '';
   }
@@ -815,7 +793,7 @@ export class ErpCombosMenus extends LitElement {
       // The tap ANSWERS. This is the whole reason the button is not natively disabled.
       // `typed` is what they actually wrote: an unreadable amount is quoted back, because
       // "this is not an amount" without saying WHICH one is a dead end on a busy counter.
-      this.comboReason = t(blocked, amountReadings(this.fPrice));
+      this.comboReason = t(blocked, amountReadings(this.fPrice, 'price'));
       return;
     }
     this.saving = true;
@@ -823,7 +801,7 @@ export class ErpCombosMenus extends LitElement {
     const payload = {
       name: this.fName.trim(),
       kitchen_name: this.fKitchenName.trim(),
-      price: amountToMinor(this.fPrice),
+      price: amountToMinor(this.fPrice, 'price'),
       tax_category_key: this.fTaxCategory.trim(),
       supply_kind: this.fSupplyKind,
       is_active: this.fActive ? 1 : 0,
@@ -1053,7 +1031,7 @@ export class ErpCombosMenus extends LitElement {
   private optionBlockedKey(groupId: string): string {
     const draft = this.draft(groupId);
     if (!draft.ref) return 'ui.errNoArticle';
-    const delta = amountBlockedKey(draft.delta);
+    const delta = amountBlockedKey(draft.delta, 'supplement');
     if (delta) return delta;
     const editing = this.editingIn(groupId);
     const clash = (this.choices[groupId] ?? []).some(
@@ -1068,7 +1046,7 @@ export class ErpCombosMenus extends LitElement {
     if (blocked) {
       // The tap ANSWERS, in the course it was tapped in.
       this.optionScope = groupId;
-      this.optionReason = t(blocked, amountReadings(this.draft(groupId).delta));
+      this.optionReason = t(blocked, amountReadings(this.draft(groupId).delta, 'supplement'));
       return;
     }
     const draft = this.draft(groupId);
@@ -1080,7 +1058,7 @@ export class ErpCombosMenus extends LitElement {
     try {
       // The reference stays OPAQUE both ways: `source` + `source_ref`, never the article name.
       // This module does not learn what those rows are, which is what keeps `depends_on` empty.
-      const article = { source, source_ref: rest.join(':'), price_delta: amountToMinor(draft.delta) };
+      const article = { source, source_ref: rest.join(':'), price_delta: amountToMinor(draft.delta, 'supplement') };
       if (editing) {
         await erplora().command('combos.options.update', {
           option_id: editing.option_id,
