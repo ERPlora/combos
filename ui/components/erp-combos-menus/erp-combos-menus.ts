@@ -635,11 +635,13 @@ export class ErpCombosMenus extends LitElement {
         filterable: true,
         // Closed domain the server filters by `eq`: it is chosen, never typed.
         filterType: 'select',
+        // The list READS the kind row after row, so it gets the short value ("Eat in" / "Take
+        // away"); the long sentence that explains the consequence stays in the form (combos#25).
         options: [
-          { value: 'service', label: t('ui.supplyService') },
-          { value: 'goods', label: t('ui.supplyGoods') },
+          { value: 'service', label: t('ui.supplyServiceShort') },
+          { value: 'goods', label: t('ui.supplyGoodsShort') },
         ],
-        format: (r) => (r.supply_kind === 'goods' ? t('ui.supplyGoods') : t('ui.supplyService')),
+        format: (r) => (r.supply_kind === 'goods' ? t('ui.supplyGoodsShort') : t('ui.supplyServiceShort')),
       },
       {
         key: 'is_active',

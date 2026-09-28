@@ -42,6 +42,8 @@
     "supplyService": "Se consume en el local (servicio de restauración)",
     "supplyServiceHelp": "UNA línea al tipo del propio menú, bebida incluida. Es el menú del día español.",
     "supplyGoods": "Se vende como producto / para llevar",
+    "supplyServiceShort": "En el local",
+    "supplyGoodsShort": "Para llevar",
     "supplyGoodsHelp": "El precio cerrado se REPARTE en UNA LÍNEA POR COMPONENTE, cada una a su tipo.",
     "supplyGoodsWarning": "Este menú se factura como entrega de bienes: su precio se repartirá entre los componentes que añadas, una línea por cada uno.",
     "supplyServiceWarning": "Este menú se factura como un único servicio: una sola línea a su tipo de IVA, tributen como tributen sus componentes.",
