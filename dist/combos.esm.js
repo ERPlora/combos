@@ -4435,6 +4435,8 @@ var es_default = {
     supplyService: "Se consume en el local (servicio de restauraci\xF3n)",
     supplyServiceHelp: "UNA l\xEDnea al tipo del propio men\xFA, bebida incluida. Es el men\xFA del d\xEDa espa\xF1ol.",
     supplyGoods: "Se vende como producto / para llevar",
+    supplyServiceShort: "En el local",
+    supplyGoodsShort: "Para llevar",
     supplyGoodsHelp: "El precio cerrado se REPARTE en UNA L\xCDNEA POR COMPONENTE, cada una a su tipo.",
     supplyGoodsWarning: "Este men\xFA se factura como entrega de bienes: su precio se repartir\xE1 entre los componentes que a\xF1adas, una l\xEDnea por cada uno.",
     supplyServiceWarning: "Este men\xFA se factura como un \xFAnico servicio: una sola l\xEDnea a su tipo de IVA, tributen como tributen sus componentes.",
@@ -4553,6 +4555,8 @@ var en_default = {
     supplyService: "Eaten in (hospitality service)",
     supplyServiceHelp: "ONE line at the menu's own rate, drinks included. This is the Spanish menu del d\xEDa.",
     supplyGoods: "Sold as a product / to take away",
+    supplyServiceShort: "Eat in",
+    supplyGoodsShort: "Take away",
     supplyGoodsHelp: "The closed price is SPLIT into ONE LINE PER COMPONENT, each at its own rate.",
     supplyGoodsWarning: "This menu is billed as goods: its price will be split across the components you add, one line each.",
     supplyServiceWarning: "This menu is billed as a single service: one line at its VAT category, whatever the components are taxed at.",
@@ -5049,11 +5053,13 @@ var ErpCombosMenus = class extends i3 {
         filterable: true,
         // Closed domain the server filters by `eq`: it is chosen, never typed.
         filterType: "select",
+        // The list READS the kind row after row, so it gets the short value ("Eat in" / "Take
+        // away"); the long sentence that explains the consequence stays in the form (combos#25).
         options: [
-          { value: "service", label: t5("ui.supplyService") },
-          { value: "goods", label: t5("ui.supplyGoods") }
+          { value: "service", label: t5("ui.supplyServiceShort") },
+          { value: "goods", label: t5("ui.supplyGoodsShort") }
         ],
-        format: (r6) => r6.supply_kind === "goods" ? t5("ui.supplyGoods") : t5("ui.supplyService")
+        format: (r6) => r6.supply_kind === "goods" ? t5("ui.supplyGoodsShort") : t5("ui.supplyServiceShort")
       },
       {
         key: "is_active",
