@@ -1516,6 +1516,36 @@ describe('typed money is read by the shared toolkit piece, and this module decid
     expect(await savePriceTyped(el, '1,250￥'), 'a yen hub refused its own grouping').toBe(1250);
   });
 
+  // HALLAZGO rv-397: the no-break spaces Intl prints (NBSP, NNBSP in fr, the thin space) are what a
+  // paste from a receipt or a spreadsheet brings. Written as escapes: an editor turns them into
+  // ASCII spaces without anybody noticing, and the test keeps its name while proving nothing.
+  it.each([
+    { label: 'NBSP', typed: '1\u00a0250,50' },
+    { label: 'NNBSP + NBSP before the symbol', typed: '1\u202f250,50\u00a0€' },
+    { label: 'thin space', typed: '1\u2009250,50' },
+  ])('a price pasted with a $label as its grouping is read (125050)', async ({ typed }) => {
+    const el = await mount();
+    expect(await savePriceTyped(el, typed), 'a pasted grouping space was refused or misread').toBe(125050);
+  });
+
+  it('leaving the field rewrites a pasted «1\u202f250,50» as «1250,50»', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combos-price', '1\u202f250,50');
+    await settle(el);
+    at(el, 'combos-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    await settle(el);
+    expect(at(el, 'combos-price')!.value).toBe('1250,50');
+  });
+
+  it('the ambiguous refusal quotes a paste without its no-break spaces either', async () => {
+    client().locale = 'en';
+    const el = await mount();
+    expect(await savePriceTyped(el, '\u00a01.250\u202f')).toBeUndefined();
+    expect(words(at(el, 'combos-blocked-reason'))).toContain('«1.250»');
+  });
+
   it('the hub currency written by its code is cleaned («EUR 12» → 1200)', async () => {
     const el = await mount();
     expect(await savePriceTyped(el, 'EUR 12')).toBe(1200);
