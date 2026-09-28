@@ -356,6 +356,65 @@ describe('supply_kind is offered by its consequence, not as tax jargon', () => {
   });
 });
 
+// The form is where the kind is DECIDED, so it carries the long explanation; the list is where it
+// is READ, row after row, so it carries a short value — "Eat in" / "Take away", as Square, Toast and
+// Lightspeed label it (combos#25). Reusing the form sentence cut it with "…" on every row.
+describe('the menu list states supply_kind with a short value, the form keeps the explanation', () => {
+  type Column = {
+    key: string;
+    format?: (r: Record<string, unknown>) => string;
+    options?: Array<{ value: string; label: string }>;
+  };
+  const supplyColumn = (el: Mounted) =>
+    ((table(el)?.columns ?? []) as Column[]).find((c) => c.key === 'supply_kind');
+  const lookup = (catalog: unknown, key: string): unknown =>
+    key.split('.').reduce<unknown>((cur, part) => (cur && typeof cur === 'object'
+      ? (cur as Record<string, unknown>)[part] : undefined), catalog);
+  const SHORT = { service: 'ui.supplyServiceShort', goods: 'ui.supplyGoodsShort' } as const;
+  const LONG = { service: 'ui.supplyService', goods: 'ui.supplyGoods' } as const;
+
+  it('each row paints the short value of its kind, not the form sentence', async () => {
+    const el = await mount();
+    const col = supplyColumn(el)!;
+    expect(col, 'the list has no supply_kind column').toBeTruthy();
+    const es = (key: string) => lookup(esLocale, key);
+    expect(col.format!(SET_MENU), 'a `service` row').toBe(es(SHORT.service));
+    expect(col.format!(SHOP_PACK), 'a `goods` row').toBe(es(SHORT.goods));
+  });
+
+  it('the column filter offers the same short values the rows show', async () => {
+    const el = await mount();
+    const options = supplyColumn(el)!.options!;
+    const es = (key: string) => lookup(esLocale, key);
+    expect(options.map((o) => [o.value, o.label]).sort()).toEqual([
+      ['goods', es(SHORT.goods)],
+      ['service', es(SHORT.service)],
+    ]);
+  });
+
+  it('the form still offers the long sentence that explains the consequence', async () => {
+    const el = await mount();
+    const labels = Object.fromEntries(
+      [...el.shadowRoot.querySelectorAll('[data-testid="combos-supply-kind"] ion-select-option')]
+        .map((o) => [o.getAttribute('value'), words(o)]),
+    );
+    expect(labels.service).toBe(lookup(esLocale, LONG.service));
+    expect(labels.goods).toBe(lookup(esLocale, LONG.goods));
+  });
+
+  it('in BOTH catalogues the short value exists, differs from the sentence and fits a column', () => {
+    for (const [lang, catalog] of [['en', enLocale], ['es', esLocale]] as const) {
+      for (const kind of ['service', 'goods'] as const) {
+        const short = lookup(catalog, SHORT[kind]);
+        expect(typeof short, `${lang}: ${SHORT[kind]} is missing`).toBe('string');
+        expect(short, `${lang}: ${SHORT[kind]} repeats the form sentence`).not.toBe(lookup(catalog, LONG[kind]));
+        // The widest of the two, 15 characters, fits the column at 1440 px without the "…".
+        expect((short as string).length, `${lang}: ${SHORT[kind]} is a sentence, not a value`).toBeLessThanOrEqual(15);
+      }
+    }
+  });
+});
+
 // ── 4 · What the database refuses, the screen explains first ─────────────────────────────────
 
 describe('the two CHECKs of the schema are explained on screen, not in the Postgres error', () => {
