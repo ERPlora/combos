@@ -4257,8 +4257,137 @@ function majorToMinor(amount, decimals2) {
   const n6 = Number(amount);
   return Number.isFinite(n6) ? Math.round(n6 * 10 ** decimals2) : 0;
 }
-function minorToMajor(amount, decimals2) {
-  return (amount ?? 0) / 10 ** decimals2;
+
+// @erplora/module-toolkit/src/money-input.mjs
+var SPACING = "\\s'\\u2019\\u02bc";
+var GROUP_SEP = new RegExp(`[.,${SPACING}]`);
+var MINUS = /[-\u2212]/;
+var SIGN = /[-+\u2212]/;
+var SIGNS = /[-+\u2212]/g;
+var BRACKET = /[()]/;
+var CURRENCY_SIGNS = /\p{Sc}/gu;
+var AFFIX_FILLER = new RegExp(`^[${SPACING}\\p{Cf}.,+\\-\\u2212]*$`, "u");
+var NOT_AN_AMOUNT = Object.freeze({ ok: false, code: "not_an_amount" });
+function checkDecimals(decimals2) {
+  if (!Number.isInteger(decimals2) || decimals2 < 0 || decimals2 > 4) {
+    throw new RangeError(`money_input_decimals_invalid: ${String(decimals2)}`);
+  }
+}
+function currencyWords(currency, locale) {
+  if (currency === void 0) return [];
+  if (typeof currency !== "string" || !/^[A-Za-z]{3}$/.test(currency)) {
+    throw new RangeError(`money_input_currency_invalid: ${String(currency)}`);
+  }
+  const words = /* @__PURE__ */ new Set([currency.toLowerCase()]);
+  for (const lang of [locale || "en", "en"]) {
+    for (const currencyDisplay of ["symbol", "narrowSymbol"]) {
+      const part = new Intl.NumberFormat(lang, { style: "currency", currency, currencyDisplay }).formatToParts(1).find((p4) => p4.type === "currency");
+      if (part) words.add(part.value.toLowerCase());
+    }
+  }
+  return [...words].sort((a3, b3) => b3.length - a3.length);
+}
+function isCurrencyOnly(affixes, words) {
+  let rest = affixes.toLowerCase();
+  if (!words.length) rest = rest.replace(CURRENCY_SIGNS, " ");
+  for (const word of words) rest = rest.split(word).join(" ");
+  return AFFIX_FILLER.test(rest);
+}
+function isGrouping(intPart) {
+  const groups = intPart.split(GROUP_SEP);
+  if (groups.length < 2) return false;
+  const [first, ...rest] = groups;
+  const last = rest.pop();
+  return /^[1-9]\d{0,2}$/.test(first) && rest.every((g3) => /^\d{2,3}$/.test(g3)) && /^\d{3}$/.test(last);
+}
+function digitsToMinor(intDigits2, fracDigits, decimals2) {
+  const padded = fracDigits.padEnd(decimals2 + 1, "0");
+  const kept = (intDigits2 || "0") + padded.slice(0, decimals2);
+  let minor = Number(kept);
+  if (Number(padded[decimals2]) >= 5) minor += 1;
+  return Number.isSafeInteger(minor) ? minor : null;
+}
+function signed(minor, negative) {
+  return negative && minor !== 0 ? -minor : minor;
+}
+function splitCore(core, decimals2) {
+  const dots = (core.match(/\./g) ?? []).length;
+  const commas = (core.match(/,/g) ?? []).length;
+  if (dots && commas) {
+    const dec = core.lastIndexOf(".") > core.lastIndexOf(",") ? "." : ",";
+    if ((dec === "." ? dots : commas) !== 1) return null;
+    const at2 = core.lastIndexOf(dec);
+    return { intPart: core.slice(0, at2), frac: core.slice(at2 + 1) };
+  }
+  if (dots + commas !== 1) return { intPart: core, frac: "" };
+  const at = Math.max(core.lastIndexOf("."), core.lastIndexOf(","));
+  const intPart = core.slice(0, at);
+  const tail = core.slice(at + 1);
+  if (tail.length === 3 && isGrouping(core)) {
+    if (decimals2 === 0) return { intPart: core, frac: "" };
+    if (decimals2 !== 3) return { ambiguous: { intPart, tail } };
+  }
+  return { intPart, frac: tail };
+}
+function intDigits(intPart) {
+  if (!GROUP_SEP.test(intPart)) return /^\d*$/.test(intPart) ? intPart : null;
+  return isGrouping(intPart) ? intPart.replace(/\D/g, "") : null;
+}
+function parseMoneyInput(typed, decimals2, options = {}) {
+  checkDecimals(decimals2);
+  const words = currencyWords(options.currency, options.locale);
+  if (typeof typed === "number") return parseNumber(typed, decimals2);
+  const raw = String(typed ?? "").trim();
+  if (!raw) return { ok: true, minor: null };
+  const firstDigit = raw.search(/\d/);
+  if (firstDigit < 0) return NOT_AN_AMOUNT;
+  const start = firstDigit > 0 && /[.,]/.test(raw[firstDigit - 1]) ? firstDigit - 1 : firstDigit;
+  const end = raw.search(/\d\D*$/) + 1;
+  const prefix = raw.slice(0, start);
+  const suffix = raw.slice(end);
+  const core = raw.slice(start, end);
+  const signs = prefix.match(SIGNS) ?? [];
+  if (signs.length > 1 || SIGN.test(suffix) || BRACKET.test(prefix + suffix)) return NOT_AN_AMOUNT;
+  if (!isCurrencyOnly(`${prefix} ${suffix}`, words)) return NOT_AN_AMOUNT;
+  const negative = signs.length === 1 && MINUS.test(signs[0]);
+  const split = splitCore(core, decimals2);
+  if (!split) return NOT_AN_AMOUNT;
+  if ("ambiguous" in split) {
+    const { intPart, tail } = split.ambiguous;
+    const digits = intPart.replace(/\D/g, "");
+    const grouped = digitsToMinor(digits + tail, "", decimals2);
+    const decimal = digitsToMinor(digits, tail, decimals2);
+    if (grouped === null || decimal === null) return NOT_AN_AMOUNT;
+    return {
+      ok: false,
+      code: "ambiguous_amount",
+      readings: { grouped: signed(grouped, negative), decimal: signed(decimal, negative) }
+    };
+  }
+  const whole = intDigits(split.intPart);
+  if (whole === null || split.frac && !/^\d+$/.test(split.frac)) return NOT_AN_AMOUNT;
+  const minor = digitsToMinor(whole, split.frac, decimals2);
+  return minor === null ? NOT_AN_AMOUNT : { ok: true, minor: signed(minor, negative) };
+}
+function parseNumber(n6, decimals2) {
+  const m4 = /^(\d+)(?:\.(\d+))?$/.exec(String(Math.abs(n6)));
+  if (!m4) return NOT_AN_AMOUNT;
+  const minor = digitsToMinor(m4[1], m4[2] ?? "", decimals2);
+  return minor === null ? NOT_AN_AMOUNT : { ok: true, minor: signed(minor, n6 < 0) };
+}
+function formatMoneyInput(minor, decimals2, locale) {
+  checkDecimals(decimals2);
+  if (minor == null) return "";
+  return new Intl.NumberFormat(locale || "en", {
+    minimumFractionDigits: decimals2,
+    maximumFractionDigits: decimals2,
+    useGrouping: false,
+    numberingSystem: "latn"
+  }).format(minor / 10 ** decimals2);
+}
+function normaliseMoneyInput(typed, decimals2, locale, currency) {
+  const parsed = parseMoneyInput(typed, decimals2, { currency, locale });
+  return parsed.ok && parsed.minor !== null ? formatMoneyInput(parsed.minor, decimals2, locale) : typed;
 }
 
 // locales/es.json
@@ -4359,6 +4488,7 @@ var es_default = {
     errDuplicateArticle: "Este plato ya ofrece ese art\xEDculo. Para que se pueda elegir dos veces, activa \xABse puede elegir la misma opci\xF3n m\xE1s de una vez\xBB.",
     errAmbiguousAmount: "Este importe se puede leer de dos maneras: \xAB{typed}\xBB tanto puede ser {grouped} como {decimal}. Escribe los decimales para que no haya duda.",
     errNotAnAmount: "Esto no es un importe. Escribe una cifra, por ejemplo 12,50.",
+    errNegativePrice: "El precio de un men\xFA no puede ser negativo. Para abaratar una opci\xF3n, ponle un suplemento negativo.",
     errSaveMenu: "No se ha podido guardar el men\xFA.",
     errSaveCourse: "No se ha podido guardar el plato.",
     errSaveOption: "No se ha podido guardar la elecci\xF3n.",
@@ -4476,6 +4606,7 @@ var en_default = {
     errDuplicateArticle: "This course already offers that article. To let it be picked twice, switch on \xABthe same option may be picked more than once\xBB.",
     errAmbiguousAmount: "This amount can be read in two ways: \xAB{typed}\xBB could be {grouped} or {decimal}. Write the decimals so there is no doubt.",
     errNotAnAmount: "This is not an amount. Type a figure, for example 12.50.",
+    errNegativePrice: "A menu price cannot be below zero. To make a choice cheaper, give it a negative supplement instead.",
     errSaveMenu: "The menu could not be saved.",
     errSaveCourse: "The course could not be saved.",
     errSaveOption: "The choice could not be saved.",
@@ -4505,60 +4636,45 @@ function erplora() {
 var can = (permission) => erplora().hasPermission?.(permission) ?? true;
 var t5 = (key, params) => erplora().t(CATALOG, key, params);
 var decimals = () => erplora().currencyDecimals ?? 2;
-function parseAmount(typed, d3) {
-  const raw = String(typed ?? "").trim();
-  if (!raw) return { ok: true, minor: 0 };
-  const negative = raw.startsWith("-");
-  const text = raw.replace(/[^\d.,]/g, "");
-  if (!text) return { ok: false, key: "ui.errNotAnAmount" };
-  const dots = (text.match(/\./g) ?? []).length;
-  const commas = (text.match(/,/g) ?? []).length;
-  let normalised;
-  if (dots && commas) {
-    const dec = text.lastIndexOf(".") > text.lastIndexOf(",") ? "." : ",";
-    const grp = dec === "." ? "," : ".";
-    normalised = text.split(grp).join("").replace(dec, ".");
-  } else if (dots + commas === 0) {
-    normalised = text;
-  } else {
-    const sep = dots ? "." : ",";
-    const tail = text.slice(text.lastIndexOf(sep) + 1);
-    if (dots + commas > 1) normalised = text.split(sep).join("");
-    else if (tail.length === 3 && d3 !== 3) return { ok: false, key: "ui.errAmbiguousAmount" };
-    else normalised = text.replace(sep, ".");
+function readAmount(typed, field) {
+  const c5 = erplora();
+  const d3 = decimals();
+  const raw = String(typed ?? "");
+  const read = parseMoneyInput(raw, d3, { currency: c5.currency || void 0, locale: c5.locale });
+  if (read.ok) {
+    const minor = read.minor ?? 0;
+    if (minor < 0 && field === "price") return { ok: false, key: "ui.errNegativePrice" };
+    return { ok: true, minor };
   }
-  const n6 = Number(normalised);
-  if (!Number.isFinite(n6)) return { ok: false, key: "ui.errNotAnAmount" };
-  return { ok: true, minor: majorToMinor(negative ? -n6 : n6, d3) };
+  if (read.code === "ambiguous_amount") {
+    return {
+      ok: false,
+      key: "ui.errAmbiguousAmount",
+      params: {
+        typed: raw.trim(),
+        grouped: formatMoneyInput(read.readings.grouped, d3, c5.locale),
+        decimal: formatMoneyInput(read.readings.decimal, d3, c5.locale)
+      }
+    };
+  }
+  return { ok: false, key: "ui.errNotAnAmount" };
 }
-function amountToMinor(typed) {
-  const parsed = parseAmount(typed, decimals());
-  return parsed.ok ? parsed.minor : 0;
+function amountToMinor(typed, field) {
+  const read = readAmount(typed, field);
+  return read.ok ? read.minor : 0;
 }
-function amountBlockedKey(typed) {
-  const parsed = parseAmount(typed, decimals());
-  return parsed.ok ? "" : parsed.key;
+function amountBlockedKey(typed, field) {
+  const read = readAmount(typed, field);
+  return read.ok ? "" : read.key;
 }
-function amountReadings(typed) {
-  const raw = String(typed ?? "").trim();
-  const d3 = decimals();
-  const digitsOnly = raw.replace(/[^\d]/g, "");
-  const grouped = minorToInput(majorToMinor(digitsOnly || "0", d3));
-  const decimal = minorToInput(majorToMinor(raw.replace(/[^\d.,]/g, "").replace(",", "."), d3));
-  return { typed: raw, grouped, decimal };
+function amountReadings(typed, field) {
+  const read = readAmount(typed, field);
+  return read.ok ? {} : read.params ?? {};
 }
-var minorToInput = (minor) => {
-  const d3 = decimals();
-  return new Intl.NumberFormat(erplora().locale || "en", {
-    minimumFractionDigits: d3,
-    maximumFractionDigits: d3,
-    useGrouping: false
-  }).format(minorToMajor(minor, d3));
-};
+var minorToInput = (minor) => formatMoneyInput(minor, decimals(), erplora().locale);
 function normaliseOnBlur(typed) {
-  if (!typed.trim()) return typed;
-  const parsed = parseAmount(typed, decimals());
-  return parsed.ok ? minorToInput(parsed.minor) : typed;
+  const c5 = erplora();
+  return normaliseMoneyInput(typed, decimals(), c5.locale, c5.currency || void 0);
 }
 var CATALOGUES = [
   { source: "product", query: "inventory.products.list", moduleKey: "ui.moduleInventory" },
@@ -5052,7 +5168,7 @@ var ErpCombosMenus = class extends i3 {
   get comboBlockedKey() {
     if (!this.fName.trim()) return "ui.errNoName";
     if (this.fSupplyKind === "service" && !this.fTaxCategory.trim()) return "ui.errNoTaxCategory";
-    const price = amountBlockedKey(this.fPrice);
+    const price = amountBlockedKey(this.fPrice, "price");
     if (price) return price;
     return "";
   }
@@ -5060,7 +5176,7 @@ var ErpCombosMenus = class extends i3 {
     if (!can("combos.manage_combo")) return;
     const blocked = this.comboBlockedKey;
     if (blocked) {
-      this.comboReason = t5(blocked, amountReadings(this.fPrice));
+      this.comboReason = t5(blocked, amountReadings(this.fPrice, "price"));
       return;
     }
     this.saving = true;
@@ -5069,7 +5185,7 @@ var ErpCombosMenus = class extends i3 {
     const payload = {
       name: this.fName.trim(),
       kitchen_name: this.fKitchenName.trim(),
-      price: amountToMinor(this.fPrice),
+      price: amountToMinor(this.fPrice, "price"),
       tax_category_key: this.fTaxCategory.trim(),
       supply_kind: this.fSupplyKind,
       is_active: this.fActive ? 1 : 0,
@@ -5292,7 +5408,7 @@ var ErpCombosMenus = class extends i3 {
   optionBlockedKey(groupId) {
     const draft = this.draft(groupId);
     if (!draft.ref) return "ui.errNoArticle";
-    const delta = amountBlockedKey(draft.delta);
+    const delta = amountBlockedKey(draft.delta, "supplement");
     if (delta) return delta;
     const editing = this.editingIn(groupId);
     const clash = (this.choices[groupId] ?? []).some(
@@ -5305,7 +5421,7 @@ var ErpCombosMenus = class extends i3 {
     const blocked = this.optionBlockedKey(groupId);
     if (blocked) {
       this.optionScope = groupId;
-      this.optionReason = t5(blocked, amountReadings(this.draft(groupId).delta));
+      this.optionReason = t5(blocked, amountReadings(this.draft(groupId).delta, "supplement"));
       return;
     }
     const draft = this.draft(groupId);
@@ -5316,7 +5432,7 @@ var ErpCombosMenus = class extends i3 {
     this.optionError = "";
     this.optionReason = "";
     try {
-      const article = { source, source_ref: rest.join(":"), price_delta: amountToMinor(draft.delta) };
+      const article = { source, source_ref: rest.join(":"), price_delta: amountToMinor(draft.delta, "supplement") };
       if (editing) {
         await erplora().command("combos.options.update", {
           option_id: editing.option_id,

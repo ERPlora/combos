@@ -1444,6 +1444,207 @@ describe('money is written into the field in the language of the hub, and read b
   });
 });
 
+// ── 10b · One reading for every module: `@erplora/module-toolkit/money-input` (pm#521) ─────────
+//
+// combos#7 wrote its own reader of typed money; the toolkit took it as the shared piece
+// (module-toolkit#395/#397, combos#9) and its review found what this copy still GUESSED. Measured
+// on origin/main@5a6cc6a with the local `parseAmount`:
+//
+//     «12abc»      -> 1200     letters glued to the figure were cleaned away
+//     «(12)»       -> 1200     accounting brackets read as a plain 12
+//     «12−»        -> 1200     a minus BEHIND the digits dropped
+//     «$12»        -> 1200     a dollar amount saved as euros
+//     «−1,50»      -> +150     the typographic minus (U+2212) read as PLUS
+//     «1,250¥»     -> refused  in a yen hub, where there is nothing to be ambiguous about
+//
+// This module still decides one thing for itself: a MENU PRICE is never negative (CHECK price >= 0
+// in 001_init.sql, `minimum: 0` in its schemas), a SUPPLEMENT may be (a cheaper substitution is a
+// real menu, section 5). The price refuses a negative in words before the server answers with a
+// raw schema detail; the supplement keeps its sign.
+
+// HALLAZGO rv-395/rv-397: not guessed, and not this hub's money.
+const GARBAGE = ['abc', '12abc', '12−', '(12)', '$12', '1.5k'];
+// HALLAZGO rv-122: money-input KEEPS the sign; the minus may be ASCII or U+2212.
+const NEGATIVE = ['-1.250,50', '−1.250,50'];
+
+/** Adds a choice to course g1 with `typed` as its supplement; returns the create command, if any. */
+async function addChoiceTyped(el: Mounted, typed: string): Promise<{ payload: Record<string, unknown> } | undefined> {
+  const picker = at(el, inCourse('option-picker'))!;
+  picker.dispatchEvent(new CustomEvent('ok-change', { detail: { value: 'product:p2', label: 'Solomillo' } }));
+  type(el, inCourse('option-delta'), typed);
+  await settle(el);
+  commands = [];
+  at(el, inCourse('option-save'))!.click();
+  await settle(el);
+  return commands.find((c) => c.name === 'combos.options.create');
+}
+
+const client = () => (globalThis as Record<string, any>).erplora;
+
+describe('typed money is read by the shared toolkit piece, and this module decides the sign (pm#521)', () => {
+  it.each(GARBAGE)('«%s» on the menu price is refused as not an amount, and nothing is saved', async (typed) => {
+    const el = await mount();
+    expect(await savePriceTyped(el, typed), `«${typed}» was guessed and saved`).toBeUndefined();
+    expect(at(el, 'combos-blocked-reason'), 'refused in silence').toBeTruthy();
+    expect(translated).toContain('ui.errNotAnAmount');
+  });
+
+  it.each(NEGATIVE)('a negative menu price «%s» is refused in words, never saved nor turned positive', async (typed) => {
+    const el = await mount();
+    expect(await savePriceTyped(el, typed), 'a negative price reached the command').toBeUndefined();
+    expect(translated).toContain('ui.errNegativePrice');
+    expect(translated, 'a negative is not "not an amount": it is read, then refused').not.toContain('ui.errNotAnAmount');
+  });
+
+  // Only BELOW zero is refused: 0 is what the CHECK allows (a menu priced by its components).
+  it('a typed zero price is saved as 0, not refused as negative', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '0,00')).toBe(0);
+    expect(translated).not.toContain('ui.errNegativePrice');
+  });
+
+  // HALLAZGO rv-43: HALF_UP on the typed DIGITS, never on a float (1250.505 * 100 = 125050.4999…).
+  it('decimals beyond the currency are rounded HALF_UP on the typed digits', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '1.250,505'), 'rounded on a float, a cent lost').toBe(125051);
+    expect(await savePriceTyped(el, '12,5549'), 'rounded up below the half').toBe(1255);
+  });
+
+  it('the hub currency as the hub prints it is cleaned: JPY in ja «1,250￥» is 1250, not ambiguous', async () => {
+    Object.assign(client(), { currency: 'JPY', currencyDecimals: 0, locale: 'ja' });
+    const el = await mount();
+    expect(await savePriceTyped(el, '1,250￥'), 'a yen hub refused its own grouping').toBe(1250);
+  });
+
+  // HALLAZGO rv-397: the no-break spaces Intl prints (NBSP, NNBSP in fr, the thin space) are what a
+  // paste from a receipt or a spreadsheet brings. Written as escapes: an editor turns them into
+  // ASCII spaces without anybody noticing, and the test keeps its name while proving nothing.
+  it.each([
+    { label: 'NBSP', typed: '1\u00a0250,50' },
+    { label: 'NNBSP + NBSP before the symbol', typed: '1\u202f250,50\u00a0€' },
+    { label: 'thin space', typed: '1\u2009250,50' },
+  ])('a price pasted with a $label as its grouping is read (125050)', async ({ typed }) => {
+    const el = await mount();
+    expect(await savePriceTyped(el, typed), 'a pasted grouping space was refused or misread').toBe(125050);
+  });
+
+  it('leaving the field rewrites a pasted «1\u202f250,50» as «1250,50»', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combos-price', '1\u202f250,50');
+    await settle(el);
+    at(el, 'combos-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    await settle(el);
+    expect(at(el, 'combos-price')!.value).toBe('1250,50');
+  });
+
+  it('the ambiguous refusal quotes a paste without its no-break spaces either', async () => {
+    client().locale = 'en';
+    const el = await mount();
+    expect(await savePriceTyped(el, '\u00a01.250\u202f')).toBeUndefined();
+    expect(words(at(el, 'combos-blocked-reason'))).toContain('«1.250»');
+  });
+
+  it('the hub currency written by its code is cleaned («EUR 12» → 1200)', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, 'EUR 12')).toBe(1200);
+  });
+
+  it('the ambiguous refusal quotes what was typed without the spaces a paste brings, in the hub locale', async () => {
+    client().locale = 'en';
+    const el = await mount();
+    expect(await savePriceTyped(el, ' 1.250 ')).toBeUndefined();
+    const said = words(at(el, 'combos-blocked-reason'));
+    expect(said).toContain('«1.250»');
+    expect(said, 'the grouped reading is not in the hub locale').toContain('1250.00');
+    expect(said, 'the decimal reading is not in the hub locale').toContain('1.25');
+  });
+
+  // es does not group four digits: 12345,50 is what proves the field is filled WITHOUT grouping.
+  it('reopening a menu fills «12345,50» (no grouping) and it reads back as the same amount', async () => {
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: { ...SET_MENU, price: 1234550 } } }));
+    await settle(el);
+    expect(at(el, 'combos-price')!.value).toBe('12345,50');
+    commands = [];
+    at(el, 'combos-save')!.click();
+    await settle(el);
+    expect(commands.find((c) => c.name === 'combos.combos.update')?.payload.price).toBe(1234550);
+  });
+
+  it('a KWD hub rewrites the price to its three decimals on blur', async () => {
+    Object.assign(client(), { currency: 'KWD', currencyDecimals: 3, locale: 'en' });
+    const el = await mount();
+    table(el)!.dispatchEvent(new CustomEvent('rowAction', { detail: { actionId: 'edit', row: SET_MENU } }));
+    await settle(el);
+    type(el, 'combos-price', 'KWD 12.5');
+    await settle(el);
+    at(el, 'combos-price')!.dispatchEvent(new CustomEvent('ionBlur'));
+    await settle(el);
+    expect(at(el, 'combos-price')!.value).toBe('12.500');
+  });
+
+  it.each(['12abc', '(12)', '12−', '$12'])('«%s» on a supplement is refused as not an amount, and no choice is added', async (typed) => {
+    const el = await mount();
+    await openMenu(el);
+    expect(await addChoiceTyped(el, typed), `«${typed}» was guessed and added`).toBeUndefined();
+    expect(translated).toContain('ui.errNotAnAmount');
+  });
+
+  it.each([
+    { typed: '-1.250,50', minor: -125050 },
+    { typed: '−1,50', minor: -150 },
+  ])('a negative supplement «$typed» keeps its sign ($minor)', async ({ typed, minor }) => {
+    const el = await mount();
+    await openMenu(el);
+    const created = await addChoiceTyped(el, typed);
+    expect(created?.payload.price_delta, 'the sign of a supplement was lost or refused').toBe(minor);
+  });
+
+  it('an empty supplement is still "no supplement" (0), not a refusal', async () => {
+    const el = await mount();
+    await openMenu(el);
+    expect((await addChoiceTyped(el, '  '))?.payload.price_delta).toBe(0);
+  });
+
+  // rv-combos-26: the readings are formatted in the HUB locale, not in English. `2500` alone is
+  // also inside «2500.00», so the es decimals are what proves it.
+  it('the two readings of an ambiguous price are written in the hub locale (es)', async () => {
+    const el = await mount();
+    expect(await savePriceTyped(el, '2.500')).toBeUndefined();
+    const said = words(at(el, 'combos-blocked-reason'));
+    expect(said, 'the grouped reading is not in the hub locale').toContain('2500,00');
+    expect(said, 'the decimal reading is not in the hub locale').toContain('2,50');
+  });
+
+  // rv-combos-26: the supplement answers an undecidable amount with ITS two readings too.
+  it('an ambiguous supplement is refused quoting what was typed and its two readings', async () => {
+    const el = await mount();
+    await openMenu(el);
+    expect(await addChoiceTyped(el, ' 2.500 '), 'a `2.500` supplement was guessed and added').toBeUndefined();
+    const said = words(at(el, inCourse('option-blocked-reason')));
+    expect(said, 'the refusal does not quote what was typed').toContain('«2.500»');
+    expect(said, 'the refusal does not offer the grouped reading').toContain('2500,00');
+    expect(said, 'the refusal does not offer the decimal reading').toContain('2,50');
+  });
+
+  // cash_register-wt-521: a helper that detaches `t` from the client (`const tr = c.t; tr(...)`)
+  // loses `this`, and the SDK's `t` reads `this.locale` — a TypeError on every refusal and a mute
+  // screen. The arrow-function double above cannot see it; this client's `t` is a METHOD.
+  it('the refusal is written with the client `t` called as a METHOD (it reads `this`)', async () => {
+    const c = client();
+    const arrow = c.t;
+    c.t = function t(this: { locale?: string } | undefined, catalog: Record<string, unknown>, key: string, params?: Record<string, unknown>) {
+      if (!this || this.locale !== 'es') throw new TypeError('t() called without its client');
+      return arrow(catalog, key, params);
+    };
+    const el = await mount();
+    expect(await savePriceTyped(el, '12abc')).toBeUndefined();
+    expect(words(at(el, 'combos-blocked-reason')), 'the refusal went mute').toContain('importe');
+  });
+});
+
 // ── 11 · Reordering also by DRAGGING, without ever losing the arrows (combos#6) ────────────────
 //
 // The market barrido of pm#157 (11 products downloaded and checked one by one, written into

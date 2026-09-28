@@ -12,8 +12,8 @@ import { checkMoneyDisplay } from '@erplora/module-toolkit/money-display-guard';
 //   CALL, not the name: the screen also declares `formatMoney(minor: number)` in its `erplora()`
 //   interface, and a scan over empty or over-stripped content must not stay green on that
 //   declaration (rv-combos-22).
-// * notDisplay — none: `minorToInput` (the value of the money inputs) is a `NumberFormat` WITHOUT
-//   `currency`, so it is not a hit. Add an entry (`'file: exact code line'` → why) only with the
+// * notDisplay — none: the value of the money inputs comes from the toolkit's `formatMoneyInput`
+//   (pm#521), a `NumberFormat` WITHOUT `currency` that lives outside this module, so it is not a hit. Add an entry (`'file: exact code line'` → why) only with the
 //   reason it is not a screen amount.
 // * outfitkitImporters — the menus screen imports OutfitKit (entry points + types), so the barrel
 //   scan provably read it (rv-pricing-53).

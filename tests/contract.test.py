@@ -326,6 +326,37 @@ for block in ("queries", "commands"):
                 f"to the tenant is a cross-hub leak",
             )
 
+# 7. THE SIGN OF TYPED MONEY IS SETTLED AT THE DOOR TOO (pm#521). The screen reads typed money with
+#    the toolkit's money-input, which KEEPS the sign; the screen refuses a negative price in words,
+#    and the command schemas are the door every other caller (the assistant, a flow, the API) goes
+#    through. A price is `minimum: 0` — 0 is allowed, exactly like CHECK (price >= 0), so neither
+#    `exclusiveMinimum` nor `minimum: 1` — and a supplement has NO floor (rule 4).
+SCHEMAS = MODULE_DIR / "schemas"
+for name in ("combo_create", "combo_update"):
+    price = (
+        json.loads((SCHEMAS / f"{name}.json").read_text())["properties"].get("price")
+        or {}
+    )
+    check(
+        price.get("minimum") == 0 and "exclusiveMinimum" not in price,
+        f"schemas/{name}.json: price must be `minimum: 0` (a negative menu price reaches the "
+        f"CHECK as a raw error; a free one is allowed), got {price}",
+    )
+for name in ("option_create", "option_update"):
+    delta = (
+        json.loads((SCHEMAS / f"{name}.json").read_text())["properties"].get(
+            "price_delta"
+        )
+        or {}
+    )
+    check(
+        delta.get("type") == "integer"
+        and "minimum" not in delta
+        and "exclusiveMinimum" not in delta,
+        f"schemas/{name}.json: price_delta is an integer with NO floor (a cheaper substitution "
+        f"is a real menu), got {delta}",
+    )
+
 if failures:
     print(f"✗ {len(failures)} contract failure(s):", file=sys.stderr)
     for f in failures:
