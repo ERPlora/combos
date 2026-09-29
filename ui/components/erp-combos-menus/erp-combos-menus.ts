@@ -5,7 +5,7 @@ import '@erplora/outfitkit/ok-data-table';
 import '@erplora/outfitkit/ok-inline-feedback';
 import '@erplora/outfitkit/ok-combo';
 import type { DataTableColumn, DataTableAction } from '@erplora/outfitkit';
-import { createListController, dataTableLabels } from '@erplora/module-sdk';
+import { createListController, dataTableLabels, dataTableShowsLoadError } from '@erplora/module-sdk';
 import { formatMoneyInput, normaliseMoneyInput, parseMoneyInput } from '@erplora/module-toolkit/money-input';
 import type { ListController, ListClient, ListParams, ListPage } from '@erplora/module-sdk';
 import esLocale from '../../../locales/es.json';
@@ -1654,8 +1654,10 @@ export class ErpCombosMenus extends LitElement {
 
     return html`<div class="page">
       ${this.comboError ? html`<ok-inline-feedback data-testid="combos-error" tone="danger" icon="alert-circle-outline">${this.comboError}</ok-inline-feedback>` : nothing}
-      ${this.ctrl?.error ? html`<ok-inline-feedback data-testid="combos-list-error" tone="danger" icon="alert-circle-outline">${this.ctrl.error}</ok-inline-feedback>` : nothing}
+      ${this.ctrl?.error && !dataTableShowsLoadError() ? html`<ok-inline-feedback data-testid="combos-list-error" tone="danger" icon="alert-circle-outline">${this.ctrl.error}</ok-inline-feedback>` : nothing}
       <ok-data-table testid="combos-table"
+        .error=${this.ctrl?.error ?? ''}
+        @retry=${() => Promise.all([this.ctrl?.load(), this.loadCatalogues(), this.loadTaxCategories()])}
         .serverSide=${true}
         .fill=${true}
         .labels=${dataTableLabels(erplora().locale)}
