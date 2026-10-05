@@ -181,8 +181,7 @@ Pasos:
 Entra: el catálogo de productos (Inventario) y de servicios (Servicios) para elegir; solo guarda el tipo y el identificador del artículo, sin enlace fuerte.
 Sale: la elección (avisa: combos.choice_option.created, updated o deleted). El suplemento se suma al precio cerrado, nunca al precio del componente.
 Si falla: antes de enviar: «Elige antes un artículo del catálogo.», «Este plato ya ofrece ese artículo. Para que se pueda elegir dos veces, activa «se puede elegir la misma opción más de una vez».» y los avisos de importe. Si el servidor rechaza, «No se ha podido guardar la elección.» o «No se ha podido quitar la elección.». Si un catálogo no carga, sale el mensaje del error o, si no trae, «No se ha podido cargar el catálogo de artículos, así que esta lista puede estar incompleta.». La misma pareja plato y artículo no cabe dos veces (restricción de base). El módulo no comprueba que el identificador sea un artículo real.
-Implicados: INVENTORY-F27, REC_RESTAURANTE-F03
-Pendiente de enlazar: services — servicios que se pueden elegir como componente de un pack
+Implicados: INVENTORY-F27, SERVICES-F10, REC_RESTAURANTE-F03
 QA: qa-hub-restaurant §7.03
 
 ### COMBOS-F07 Elegir un menú al vender
