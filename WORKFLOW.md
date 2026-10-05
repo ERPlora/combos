@@ -123,8 +123,7 @@ Pasos:
 Entra: nombre, nombre de cocina, precio, forma de venta, tipo de IVA, orden y «A la venta»; las categorías de IVA las lee de Impuestos.
 Sale: el menú (avisa: combos.combo.created). No crea platos ni elecciones.
 Si falla: antes de enviar, junto al botón: «El menú necesita un nombre.», «Un menú que se consume en el local necesita su propio tipo de IVA: sin él no se puede facturar.», «El precio de un menú no puede ser negativo. Para abaratar una opción, ponle un suplemento negativo.», y los dos avisos de importe ilegible («Esto no es un importe. Escribe una cifra, por ejemplo 12,50.» y el de las dos lecturas posibles, que cita lo escrito). Si el servidor rechaza, sale su mensaje o «No se ha podido guardar el menú.». Sin permiso de gestión no hay botón de añadir. Sin Impuestos instalado, la lista de IVA sale vacía y un menú «en el local» no se puede guardar; un menú «para llevar» sí.
-Implicados: pendiente
-Pendiente de enlazar: taxes — categorías de IVA que se pueden poner a un menú
+Implicados: TAXES-F01, REC_RESTAURANTE-F03
 QA: qa-hub-restaurant §7.03
 
 ### COMBOS-F03 Cambiar los datos de un menú, ponerlo a la venta o retirarlo de la venta
@@ -139,8 +138,7 @@ Pasos:
 Entra: los mismos campos que el alta.
 Sale: el menú cambiado (avisa: combos.combo.updated). Lo ya cobrado no cambia: cada línea de la venta lleva el menú congelado. En una cuenta abierta solo se congela el importe (precio cerrado y suplementos): cambiar la forma de venta o el tipo de IVA cambia cómo se factura al cobrarla, y retirar el menú o una elección hace que se rechace.
 Si falla: los mismos avisos que el alta; «No se ha podido guardar el menú.» si el servidor rechaza. Por el asistente o la API, un cambio reescribe todos los campos: lo que no se nombra vuelve a su valor de fábrica (a la venta, orden 0, nombre de cocina vacío; el tipo de IVA vacío lo rechaza la base en un menú «en el local»). Un menú ya puesto en una cuenta abierta y retirado de la venta se rechaza al cobrar: «Ese menú ya no está a la venta. Quítalo del tique o vuelve a activarlo en Combos».
-Implicados: pendiente
-Pendiente de enlazar: sales — SALES-F12 deja de ofrecer un menú que no está a la venta
+Implicados: SALES-F12, REC_RESTAURANTE-F03
 QA: qa-hub-restaurant §7.03
 
 ### COMBOS-F04 Retirar un menú
@@ -153,8 +151,7 @@ Pasos:
 Entra: el menú elegido.
 Sale: el menú, sus platos y sus elecciones retirados en una sola operación (avisa: combos.combo.deleted). Los tiques ya emitidos se siguen leyendo: llevan una copia congelada del menú.
 Si falla: el mensaje del servidor o «No se ha podido retirar el menú.», encima de la tabla. El módulo trae un texto para «menú en uso» (el aviso de que se está usando y no se puede retirar) pero ningún comando lo lanza: retirar un menú en uso funciona. Una cuenta abierta que lo llevaba falla al cobrar: «Ese menú ya no está en el catálogo: quita la línea y vuelve a añadirla».
-Implicados: pendiente
-Pendiente de enlazar: sales — SALES-F12 rechaza al cobrar un menú retirado
+Implicados: SALES-F12
 QA: ninguno
 
 ### COMBOS-F05 Montar los platos de un menú
@@ -169,7 +166,7 @@ Pasos:
 Entra: nombre, mínimo, máximo y repetición; el orden lo pone la pantalla.
 Sale: el plato (avisa: combos.choice_group.created, updated o deleted); cada cambio de orden reescribe el plato. Un plato obligatorio exige elegir en el TPV; uno opcional se puede dejar vacío.
 Si falla: antes de enviar: «El menú necesita un nombre.» (también para el plato) y «El máximo ({max}) queda por debajo del mínimo ({min}): nadie podría satisfacer nunca este plato.». Si el servidor rechaza, «No se ha podido guardar el plato.» o «No se ha podido quitar el plato.». El servidor también rechaza un máximo por debajo del mínimo (restricción de base) y valores por encima de 50. Un fallo al reordenar recarga los platos con lo que el servidor guardó.
-Implicados: ninguno
+Implicados: REC_RESTAURANTE-F03
 QA: qa-hub-restaurant §7.03
 
 ### COMBOS-F06 Elegir los artículos de cada plato y su suplemento
@@ -184,8 +181,7 @@ Pasos:
 Entra: el catálogo de productos (Inventario) y de servicios (Servicios) para elegir; solo guarda el tipo y el identificador del artículo, sin enlace fuerte.
 Sale: la elección (avisa: combos.choice_option.created, updated o deleted). El suplemento se suma al precio cerrado, nunca al precio del componente.
 Si falla: antes de enviar: «Elige antes un artículo del catálogo.», «Este plato ya ofrece ese artículo. Para que se pueda elegir dos veces, activa «se puede elegir la misma opción más de una vez».» y los avisos de importe. Si el servidor rechaza, «No se ha podido guardar la elección.» o «No se ha podido quitar la elección.». Si un catálogo no carga, sale el mensaje del error o, si no trae, «No se ha podido cargar el catálogo de artículos, así que esta lista puede estar incompleta.». La misma pareja plato y artículo no cabe dos veces (restricción de base). El módulo no comprueba que el identificador sea un artículo real.
-Implicados: pendiente
-Pendiente de enlazar: inventory — productos que se pueden elegir como componente de un menú
+Implicados: INVENTORY-F27, REC_RESTAURANTE-F03
 Pendiente de enlazar: services — servicios que se pueden elegir como componente de un pack
 QA: qa-hub-restaurant §7.03
 
@@ -201,9 +197,7 @@ Pasos:
 Entra: los menús a la venta con sus platos y elecciones (`combos.options.all`); los nombres de los artículos los pone el catálogo de productos que el TPV ya tiene cargado.
 Sale: la línea del menú con los identificadores de lo elegido; el precio que viaja es solo una vista previa que Venta ignora (COMBOS-F08). El servidor vuelve a comprobar cada plato al cobrar: mínimo, máximo y repetición.
 Si falla: sin Combos instalado, el TPV no ofrece menús ni avisa. Si la lectura falla, «No se han podido cargar los menús, así que no se ofrece ninguno. Revisa el módulo Combos e inténtalo de nuevo». Un menú sin ninguna elección, o con «A la venta» desmarcada, no sale. Un plato sin elecciones no llega a Venta (la consulta parte de las elecciones): no sale en la hoja y nadie lo exige aunque sea obligatorio; el menú se vende sin él. Al cobrar, un plato incompleto («Al menú le falta un plato por elegir. Complétalo antes de cobrar»), con demasiadas elecciones («El menú admite menos elecciones en ese plato. Quita una antes de cobrar») o con una repetida («Ese plato no admite elegir dos veces lo mismo») se rechaza y no se cobra. Por la API o el asistente, en una cuenta de mesa el mínimo no se comprueba al añadir ni al mandar a cocina: solo al cobrar.
-Implicados: pendiente
-Pendiente de enlazar: sales — SALES-F12 compone un menú
-Pendiente de enlazar: modifiers — MODIFIERS-F06 elegir opciones dentro de un componente del menú
+Implicados: MODIFIERS-F06, SALES-F12, REC_RESTAURANTE-F06
 QA: qa-hub-restaurant §7.03, qa-hub-restaurant §7.07
 
 ### COMBOS-F08 Cobrar el menú: precio cerrado y suplementos
@@ -218,8 +212,7 @@ Pasos:
 Entra: el precio cerrado, el tipo de IVA, la forma de venta y las elecciones de este módulo, leídos por Venta; las elecciones que manda el TPV.
 Sale: las líneas del menú en la venta, sin línea «padre» con dinero, y el menú congelado en cada una; Factura y la AEAT leen esas líneas (COMBOS-F09).
 Si falla: sin Combos o sin que llegue el catálogo: «No se han podido cargar los menús, así que no se ha cobrado nada. Comprueba que el módulo Combos está instalado y vuelve a intentarlo». Menú que ya no existe: «Ese menú ya no está en el catálogo: quita la línea y vuelve a añadirla». Elección que ya no existe: «Una de las elecciones del menú ya no está en el catálogo: vuelve a elegirla». En todos los casos la venta no se guarda.
-Implicados: pendiente
-Pendiente de enlazar: sales — SALES-F12 cobra el menú al precio cerrado
+Implicados: SALES-F12, REC_RESTAURANTE-F11
 QA: qa-hub-restaurant §7.03
 
 ### COMBOS-F09 Repartir el IVA de un menú
@@ -234,9 +227,7 @@ Pasos:
 Entra: forma de venta, tipo de IVA del menú y elecciones de este módulo; precio de catálogo y tipo de cada producto, que lee Venta de Inventario.
 Sale: las líneas con su base y su cuota para la factura (avisa: sale.completed, con el menú congelado en cada línea).
 Si falla: un menú «en el local» sin tipo de IVA: «Ese menú no tiene categoría fiscal, así que no se puede cobrar. Configúrala en Combos» (la base y la pantalla ya lo impiden al guardar). Un menú «para llevar» con un servicio dentro, o con un producto que no está activo en Inventario, se rechaza al cobrar, se parta o no: «Un componente del menú no tiene precio de catálogo, así que no se puede repartir su IVA. Ponle precio en el catálogo»; al partir, también si todos los componentes valen 0 en el catálogo. Un menú «para llevar» cuyos productos no tienen categoría fiscal en Inventario se rechaza con «Ese menú no tiene categoría fiscal, así que no se puede cobrar. Configúrala en Combos», aunque lo que falta está en Inventario. En todos los casos no se cobra.
-Implicados: pendiente
-Pendiente de enlazar: taxes — reparto del IVA de un precio único entre componentes
-Pendiente de enlazar: invoice — factura con las líneas de un menú partido
+Implicados: SALES-F12, REC_RESTAURANTE-F12
 QA: qa-hub-restaurant §7.03
 
 ### COMBOS-F10 Bajar el stock de cada plato al cobrar
@@ -251,9 +242,7 @@ Pasos:
 Entra: los artículos elegidos del menú, que manda Venta en el aviso de venta cobrada.
 Sale: movimientos de stock por artículo (Inventario); nada de este módulo.
 Si falla: un artículo que no controla stock no descuenta nada y no avisa. Con stock insuficiente la venta no se frena (ya está cobrada): si Inventario no permite vender sin stock, ese componente no se descuenta y no queda rastro ni aviso; si lo permite, su stock queda en negativo.
-Implicados: pendiente
-Pendiente de enlazar: inventory — descuento y devolución de stock por los componentes de un menú
-Pendiente de enlazar: sales — SALES-F12 manda los componentes del menú al aviso de venta
+Implicados: INVENTORY-F22, SALES-F12, REC_RESTAURANTE-F11
 QA: qa-hub-restaurant §7.03
 
 ### COMBOS-F11 Mandar el menú a cocina
@@ -267,9 +256,7 @@ Pasos:
 Entra: la línea del menú de la cuenta abierta (nombre y composición congelada), que lee Venta.
 Sale: el aviso de comanda enviada (order.fired) con la línea del menú; Cocina la guarda como una línea.
 Si falla: Cocina rechaza un menú que llega con la lista de componentes vacía («kitchen.combo_without_components»); Venta no manda esa lista. Por la API o el asistente el mínimo de cada plato no se comprueba al mandar a cocina, solo al cobrar.
-Implicados: pendiente
-Pendiente de enlazar: sales — SALES-F20 manda el menú a cocina con sus componentes
-Pendiente de enlazar: kitchen — expandir un menú en sus componentes, cada uno a su estación
+Implicados: KITCHEN-F06, SALES-F20, REC_RESTAURANTE-F07
 QA: qa-hub-restaurant §7.08
 
 ## Cobertura contra la referencia
