@@ -245,16 +245,16 @@ Implicados: INVENTORY-F22, SALES-F12, REC_RESTAURANTE-F11
 QA: qa-hub-restaurant §7.03
 
 ### COMBOS-F11 Mandar el menú a cocina
-Estado: parcial — la comanda recibe el menú como una sola línea con su nombre comercial: sin los platos elegidos, sin cada plato en su estación y sin el nombre de cocina del menú, porque Venta no manda a Cocina los componentes que Cocina sabe expandir (comprobado en el código de los dos módulos); y un menú sin completar sale a cocina igual
+Estado: parcial — un menú todavía sin nada elegido sale a cocina como una sola línea con su nombre, y uno a medias manda solo lo elegido sin avisar de lo que falta (sales#535)
 Actor: sistema
 Pantalla: ninguna
 Pasos:
 1. El camarero añade un menú a la cuenta de la mesa y manda la cuenta a cocina.
-2. Venta arma la comanda con las líneas guardadas de la cuenta: la línea del menú viaja con su nombre comercial y el id del menú como artículo (cantidad, precio, nota y suplementos), sin sus elecciones.
-3. Cocina crea la línea con ese nombre; solo expande un menú en sus componentes (cada uno a la estación de su artículo, bajo un mismo nombre de menú) cuando la línea trae sus componentes, y hoy Venta no los manda; y como el id del menú no es un artículo de cocina, la línea no va a la estación de ningún plato.
-Entra: la línea del menú de la cuenta abierta (nombre y composición congelada), que lee Venta.
-Sale: el aviso de comanda enviada (order.fired) con la línea del menú; Cocina la guarda como una línea.
-Si falla: Cocina rechaza un menú que llega con la lista de componentes vacía («kitchen.combo_without_components»); Venta no manda esa lista. Por la API o el asistente el mínimo de cada plato no se comprueba al mandar a cocina, solo al cobrar.
+2. Venta arma la comanda con las líneas guardadas de la cuenta: la línea del menú viaja con su nombre comercial, su nombre de cocina y los platos elegidos, cada uno con el artículo que es (lo congeló Venta de las opciones de Combos al añadir el menú a la cuenta) y su cantidad; un plato que es un servicio no viaja.
+3. Cocina pone cada plato en la estación de su artículo (o de su categoría), bajo el nombre de cocina del menú, con la nota del menú en cada uno (KITCHEN-F06).
+Entra: la línea del menú de la cuenta abierta (nombre, nombre de cocina y elecciones congeladas con su artículo), que lee Venta.
+Sale: el aviso de comanda enviada (order.fired) con la línea del menú y sus platos; Cocina crea un plato por elección, agrupados bajo el menú.
+Si falla: un menú sin nada elegido viaja como una línea con el nombre del menú (Cocina no recibe una lista vacía, que rechazaría con «kitchen.combo_without_components»), y uno a medias solo con lo elegido (sales#535). Por la API o el asistente el mínimo de cada plato no se comprueba al mandar a cocina, solo al cobrar.
 Implicados: KITCHEN-F06, SALES-F20, REC_RESTAURANTE-F07
 QA: qa-hub-restaurant §7.08
 
@@ -275,7 +275,7 @@ QA: qa-hub-restaurant §7.08
 | Menú congelado en la línea | hecho | F08 |
 | Stock por componente, nunca del menú | hecho | F10 |
 | Devolver el stock al anular | hecho | F10 |
-| Cada plato a su estación y como lista en la comanda | no hecho: la comanda lleva una línea | F11 |
+| Cada plato a su estación y como lista en la comanda | hecho con lo elegido; un menú sin nada elegido lleva una línea (sales#535) | F11 |
 | Modificadores dentro de un componente | no hecho | F07 |
 | Activar y desactivar un menú | hecho en pantalla; por asistente o API un cambio sin «A la venta» lo reactiva | F03 |
 | Disponibilidad del menú por horario (Square) | no hecho | — |
@@ -342,11 +342,9 @@ Se resuelven con `market-decision`; no las decide el worker.
 2. ¿Debe retirarse un menú que está en una cuenta abierta, o rechazarse con el aviso «en uso» que ya
    existe en los textos?
 3. ¿Retirar un menú, un plato o una elección debe pedir confirmación (el manual ya lo dice)?
-4. ¿La comanda debe llevar cada plato elegido en su estación y como lista, como exige
-   `architecture/modules/combos.md` (regla 10)? Hoy lleva una línea.
-5. ¿Debe bloquearse el envío a cocina de un menú con platos obligatorios sin resolver, o basta con que
+4. ¿Debe bloquearse el envío a cocina de un menú con platos obligatorios sin resolver, o basta con que
    el cobro lo rechace?
-6. ¿Un componente del menú debe poder llevar sus propios modificadores desde la hoja del TPV?
+5. ¿Un componente del menú debe poder llevar sus propios modificadores desde la hoja del TPV?
 
 ## Fuentes contrastadas
 
@@ -355,15 +353,13 @@ Contra `origin/main` de Combos v0.1.18, de Venta, de Cocina, de Inventario y `or
 
 - **`architecture/modules/combos.md`** abre con «decidido, sin implementar»: el módulo existe, con su
   pantalla, sus consultas y sus comandos (F01 a F11).
-- **`architecture/modules/combos.md` reglas 7 y 10** («un grupo con mínimo 1 o más sin resolver bloquea
-  el envío a cocina»; cada componente a su estación y como lista): el mínimo solo lo comprueba el cobro
-  y la hoja del TPV; la comanda lleva una línea (F07, F11).
+- **`architecture/modules/combos.md` regla 7** («un grupo con mínimo 1 o más sin resolver bloquea
+  el envío a cocina»): el mínimo solo lo comprueba el cobro y la hoja del TPV (F07, F11). La regla 10
+  (cada componente a su estación y como lista) se cumple desde sales#522.
 - **Manual de usuario** (`hand-book/modulos/combos.md`): «Lea la confirmación» al retirar y «un menú que
   esté en uso puede rechazar la retirada»: no pide confirmación (los textos de confirmación están en
   `locales/` pero ningún código los usa) y nada lanza el error de «menú en uso», ni este módulo ni el
   hub (F04).
-- **Manual de usuario**: «Cocina puede recibir cada componente en su estación»: hoy no, Venta no manda
-  los componentes (F11).
 - **Manual de usuario**: «Active **A la venta** cuando haya revisado todas las reglas»: el menú nace con
   la casilla ya marcada (F02).
 - **Manual de usuario**: no dice que la lista de IVA queda vacía sin Impuestos, ni que editar un plato
